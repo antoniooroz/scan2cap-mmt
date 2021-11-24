@@ -205,6 +205,7 @@ def compute_cap_loss(data_dict, config, weights):
 
     # caption loss
     criterion = nn.CrossEntropyLoss(ignore_index=0, reduction="none")
+    pred_caps = pred_caps[:,0:target_caps.shape[1],:] # TODO: is this approach good ?
     cap_loss = criterion(pred_caps.reshape(-1, num_vocabs), target_caps.reshape(-1))
 
     # mask out bad boxes

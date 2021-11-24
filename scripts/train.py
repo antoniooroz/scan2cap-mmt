@@ -22,7 +22,7 @@ from data.scannet.model_util_scannet import ScannetDatasetConfig
 from lib.dataset import ScannetReferenceDataset
 from lib.solver import Solver
 from lib.config import CONF
-from models.capnet import CapNet
+from models.capnet_transformer import CapNetTransformer
 from scripts.eval_pretrained import SCANREFER_TRAIN
 
 # SCANREFER_DUMMY = json.load(open(os.path.join(CONF.PATH.DATA, "ScanRefer_dummy.json")))
@@ -56,7 +56,7 @@ def get_dataloader(args, scanrefer, all_scene_list, split, config, augment, scan
 def get_model(args, dataset, device):
     # initiate model
     input_channels = int(args.use_multiview) * 128 + int(args.use_normal) * 3 + int(args.use_color) * 3 + int(not args.no_height)
-    model = CapNet(
+    model = CapNetTransformer(
         num_class=DC.num_class,
         vocabulary=dataset.vocabulary,
         embeddings=dataset.glove,
@@ -79,7 +79,7 @@ def get_model(args, dataset, device):
 
     # load pretrained model
     print("loading pretrained VoteNet...")
-    pretrained_model = CapNet(
+    pretrained_model = CapNetTransformer(
         num_class=DC.num_class,
         vocabulary=dataset.vocabulary,
         embeddings=dataset.glove,

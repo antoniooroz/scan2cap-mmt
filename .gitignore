@@ -1,5 +1,6 @@
 # Gitignores by Antonio
 lib/config.py
+*.pyc
 
 # dataset
 data/scanrefer*
