@@ -150,10 +150,16 @@ def get_solver(args, dataset, dataloader):
         os.makedirs(root, exist_ok=True)
 
     # scheduler parameters for training solely the detection pipeline
+    """
     LR_DECAY_STEP = [80, 120, 160] if args.no_caption else None
     LR_DECAY_RATE = 0.1 if args.no_caption else None
     BN_DECAY_STEP = 20 if args.no_caption else None
     BN_DECAY_RATE = 0.5 if args.no_caption else None
+    """
+    LR_DECAY_STEP = None
+    LR_DECAY_RATE = None
+    BN_DECAY_STEP = None
+    BN_DECAY_RATE = None
 
     solver = Solver(
         model=model, 

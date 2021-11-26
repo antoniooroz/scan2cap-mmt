@@ -68,7 +68,7 @@ class MeshedDecoder(Module):
                                 enc_att_module_kwargs=enc_att_module_kwargs) for _ in range(N_dec)])
         self.fc = nn.Linear(d_model, vocab_size, bias=False)
         self.max_len = max_len
-        self.padding_idx = -1 # TODO: remove
+        self.padding_idx = 0 
         self.N = N_dec
 
         self.register_state('running_mask_self_attention', torch.zeros((1, 1, 0)).byte())
@@ -86,7 +86,7 @@ class MeshedDecoder(Module):
             [type]: [description]
         """
         # input (b_s, seq_len)
-        input = data_dict["lang_ids_model"]
+        input = data_dict["lang_ids_model"] 
         
         b_s, seq_len = input.shape[:2]
         mask_queries = (input != self.padding_idx).unsqueeze(-1).float()  # (b_s, seq_len, 1)
@@ -94,9 +94,10 @@ class MeshedDecoder(Module):
         # mask_queries = (input != self.padding_idx).unsqueeze(-1).float()  
         mask_self_attention = torch.triu(torch.ones((seq_len, seq_len), dtype=torch.uint8, device=input.device),
                                          diagonal=1)
-        mask_self_attention = mask_self_attention.unsqueeze(0).unsqueeze(0)  # (1, 1, seq_len, seq_len)
+        mask_self_attention = mask_self_attention.unsqueeze(0).unsqueeze(0)  # (1, 1, seq_len, seq_len) # Should not consider future words
         mask_self_attention = mask_self_attention + (input == self.padding_idx).unsqueeze(1).unsqueeze(1).byte()
         mask_self_attention = mask_self_attention.gt(0)  # (b_s, 1, seq_len, seq_len)
+        
         if self._is_stateful:
             self.running_mask_self_attention = torch.cat([self.running_mask_self_attention, mask_self_attention], -1)
             mask_self_attention = self.running_mask_self_attention

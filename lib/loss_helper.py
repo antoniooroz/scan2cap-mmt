@@ -204,9 +204,18 @@ def compute_cap_loss(data_dict, config, weights):
     _, _, num_vocabs = pred_caps.shape
 
     # caption loss
-    criterion = nn.CrossEntropyLoss(ignore_index=0, reduction="none")
+    criterion = nn.CrossEntropyLoss(ignore_index=0, reduction="none") # changed from cross entropy
     pred_caps = pred_caps[:,0:target_caps.shape[1],:] # TODO: is this approach good ?
     cap_loss = criterion(pred_caps.reshape(-1, num_vocabs), target_caps.reshape(-1))
+    """
+    for i in range(pred_caps.shape[0]):
+        print("-----------------------------------------")
+        print("BATCH " + str(i)+":")
+        print("GT: ")
+        print(target_caps[i])
+        print("PRED:")
+        print(pred_caps.argmax(-1)[i])
+    """
 
     # mask out bad boxes
     good_bbox_masks = data_dict["good_bbox_masks"].unsqueeze(1).repeat(1, num_words-1) # (B, num_words - 1)

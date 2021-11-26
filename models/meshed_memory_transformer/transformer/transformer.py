@@ -5,12 +5,13 @@ from models.meshed_memory_transformer.containers import ModuleList
 from ..captioning_model import CaptioningModel
 from caption_module import select_target
 from lib.config import CONF
+from ..beam_search.iterative import IterativeGeneration
 
 
 class Transformer(CaptioningModel):
     def __init__(self, encoder, decoder):
         super(Transformer, self).__init__()
-        self.bos_idx = -1 # TODO: remove
+        self.bos_idx = 3
         self.encoder = encoder
         self.decoder = decoder
         self.register_state('enc_output', None)
@@ -38,47 +39,31 @@ class Transformer(CaptioningModel):
         
         enc_output, mask_enc = self.encoder(data_dict)
         
-        if is_eval:
-            return self.eval_forward(data_dict, enc_output, mask_enc, *args)
-        else:
-            return self.train_forward(data_dict, enc_output, mask_enc, *args)
+        return self.train_forward(data_dict, enc_output, mask_enc, *args)
     
     def train_forward(self, data_dict, enc_output, mask_enc, *args):
         B, N = data_dict["bbox_feature"].shape[0], data_dict["bbox_feature"].shape[1]
-        data_dict["lang_ids_model"] = data_dict["lang_ids"][:,1:]
+        data_dict["lang_ids_model"] = data_dict["lang_ids"][:,0:-1]
         
         data_dict = self._get_best_object_proposal(data_dict) # [batch_size, object_proposal_features]
         
         data_dict = self.decoder(data_dict, enc_output, mask_enc)
-        return data_dict
-        
-    def eval_forward(self, data_dict, enc_output, mask_enc, *args):
-        B, N = data_dict["bbox_feature"].shape[0], data_dict["bbox_feature"].shape[1]
-        
-        data_dict, enc_output, mask_enc = self._batchify(data_dict, enc_output, mask_enc)
-        data_dict = self.decoder(data_dict, enc_output, mask_enc)
-        data_dict = self._unbatchify(data_dict, B, N)
         return data_dict
 
     def init_state(self, b_s, device):
         return [torch.zeros((b_s, 0), dtype=torch.long, device=device),
                 None, None]
 
-    def step(self, t, prev_output, visual, seq, mode='teacher_forcing', **kwargs):
-        it = None
+    def encode_for_beam_search(self, data_dict):
+        enc_output, mask_enc = self.encoder(data_dict)
+        return enc_output, mask_enc
+
+    def step(self, t, data_dict, mode='teacher_forcing', **kwargs):
         if mode == 'teacher_forcing':
             raise NotImplementedError
-        elif mode == 'feedback':
-            if t == 0:
-                self.enc_output, self.mask_enc = self.encoder(visual)
-                if isinstance(visual, torch.Tensor):
-                    it = visual.data.new_full((visual.shape[0], 1), self.bos_idx).long()
-                else:
-                    it = visual[0].data.new_full((visual[0].shape[0], 1), self.bos_idx).long()
-            else:
-                it = prev_output
 
-        return self.decoder(it, self.enc_output, self.mask_enc)
+        data_dict = self.decoder(data_dict, self.enc_output, self.mask_enc)
+        return data_dict
     
     def _get_best_object_proposal(self, data_dict):
         target_ids, target_ious = select_target(data_dict)
@@ -96,19 +81,9 @@ class Transformer(CaptioningModel):
         
         return data_dict
     
-    def _batchify(self, data_dict, enc_output, mask_enc):
-        B, N = data_dict["bbox_feature"].shape[0], data_dict["bbox_feature"].shape[1]
-        
-        data_dict["lang_ids_model"] = torch.zeros([B * N, data_dict["lang_ids"].shape[1] - 1]).cuda().int()
-        data_dict["target_object_proposal"] = data_dict["bbox_feature"].reshape(B*N, -1)
-        enc_output = enc_output.repeat_interleave(N, dim = 0)
-        mask_enc = mask_enc.repeat_interleave(N, dim = 0)
-        
-        return data_dict, enc_output, mask_enc
-    
-    def _unbatchify(self, data_dict, B, N):
-        data_dict["lang_cap"] = data_dict["lang_cap"].reshape(B,N,data_dict["lang_cap"].shape[-2], data_dict["lang_cap"].shape[-1])
-        return data_dict
+    def iterative(self, data_dict, max_len=32, eos_idx=3):
+        iterative = IterativeGeneration(self, max_len, eos_idx)
+        return iterative.apply(data_dict)
 
 
 class TransformerEnsemble(CaptioningModel):

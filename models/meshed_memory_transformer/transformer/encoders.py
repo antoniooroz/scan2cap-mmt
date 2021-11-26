@@ -49,11 +49,12 @@ class MultiLevelEncoder(nn.Module):
 
 
 class MemoryAugmentedEncoder(MultiLevelEncoder):
-    def __init__(self, N, padding_idx, d_in=2048, **kwargs): # TODO: d_in should be num_proposals * num_features
+    def __init__(self, N, padding_idx, d_in=2048, num_proposals=256, **kwargs): # TODO: d_in should be num_proposals * num_features
         super(MemoryAugmentedEncoder, self).__init__(N, padding_idx, **kwargs)
-        self.fc = nn.Linear(d_in, self.d_model)
+        self.fc = nn.Linear(d_in, int(self.d_model))
         self.dropout = nn.Dropout(p=self.dropout)
-        self.layer_norm = nn.LayerNorm(self.d_model)
+        self.layer_norm = nn.LayerNorm(int(self.d_model))
+        self.num_proposals = num_proposals
 
     def forward(self, data_dict, attention_weights=None):
         """[summary]
@@ -66,15 +67,15 @@ class MemoryAugmentedEncoder(MultiLevelEncoder):
         Returns:
             [type]: [description]
         """
-        object_proposals = data_dict["bbox_feature"]
+        object_proposals = data_dict["bbox_feature"] # TODO: Maybe add data_dict["center"] as well
         object_masks = data_dict["bbox_mask"]
-        seq_len = data_dict["lang_ids"].shape[1] - 1
         
-        B = object_proposals.shape[0]
-        object_proposals[object_masks == 0] = 0
-        object_proposals = object_proposals.reshape(B, -1)
-        out = F.relu(self.fc(object_proposals))
+        B, N, _ = object_proposals.shape
+        object_proposals = object_proposals.reshape(B * N, -1) # [batch_size * num_proposals, feature_size]
+        
+        out = F.relu(self.fc(object_proposals)) #128 features per object_proposal -> d_model features (default=512)
         out = self.dropout(out)
         out = self.layer_norm(out)
-        out = out.repeat_interleave(seq_len, dim=0).reshape(B, seq_len, -1)
+        out = out.reshape(B, N, -1) # [batch_size, num_proposals, d_model]
+        out[object_masks == 0] = 0
         return super(MemoryAugmentedEncoder, self).forward(out, attention_weights=attention_weights)

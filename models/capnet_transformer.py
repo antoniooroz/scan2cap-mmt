@@ -44,10 +44,10 @@ class CapNetTransformer(nn.Module):
         self.proposal = ProposalModule(num_class, num_heading_bin, num_size_cluster, mean_size_arr, num_proposal, sampling)
 
         # Meshed Memory Transformer
-        encoder = MemoryAugmentedEncoder(3, 0, d_in=num_proposal * 128, attention_module=ScaledDotProductAttentionMemory,
+        encoder = MemoryAugmentedEncoder(3, 0, d_model=512, d_in=128, num_proposals=num_proposal, attention_module=ScaledDotProductAttentionMemory,
                                      attention_module_kwargs={'m': attention_module_memory_slots})
-        decoder = MeshedDecoder(len(vocabulary["word2idx"]), 54, 3)
-        self.tranformer = Transformer(encoder, decoder).cuda()
+        decoder = MeshedDecoder(len(vocabulary["word2idx"]), 54, 3, d_model=512)
+        self.transformer = Transformer(encoder, decoder).cuda()
 
     def forward(self, data_dict, use_tf=True, is_eval=False):
         """ Forward pass of the network
@@ -67,7 +67,19 @@ class CapNetTransformer(nn.Module):
         Returns:
             end_points: dict
         """
+        data_dict = self._detection_branch(data_dict, use_tf, is_eval)
 
+        #######################################
+        #                                     #
+        #      Meshed-Memory-Transformer      #
+        #                                     #
+        #######################################
+        # object_proposals, object_masks, seq, *args):
+        data_dict = self.transformer(data_dict, is_eval)
+
+        return data_dict
+    
+    def _detection_branch(self, data_dict, use_tf=True, is_eval=False):
         #######################################
         #                                     #
         #           DETECTION BRANCH          #
@@ -92,13 +104,15 @@ class CapNetTransformer(nn.Module):
 
         # --------- PROPOSAL GENERATION ---------
         data_dict = self.proposal(xyz, features, data_dict)
-
-        #######################################
-        #                                     #
-        #      Meshed-Memory-Transformer      #
-        #                                     #
-        #######################################
-        # object_proposals, object_masks, seq, *args):
-        out = self.tranformer(data_dict, is_eval)
-
+        return data_dict
+    
+    def beam_search(self, data_dict, use_tf=True, is_eval=False):
+        data_dict = self._detection_branch(data_dict, use_tf, is_eval)
+        data_dict["beam_search_max_len"] = 32
+        data_dict = self.transformer.beam_search(data_dict, max_len=data_dict["beam_search_max_len"], eos_idx=3, beam_size=5, out_size=1)
+        return data_dict
+    
+    def iterative(self, data_dict, use_tf=True, is_eval=False):
+        data_dict = self._detection_branch(data_dict, use_tf, is_eval)
+        data_dict = self.transformer.iterative(data_dict, max_len=32, eos_idx=3)
         return data_dict
