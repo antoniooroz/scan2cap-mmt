@@ -143,6 +143,11 @@ def get_solver(args, dataset, dataloader):
         model.load_state_dict(checkpoint["model_state_dict"])
         optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
         checkpoint_best = checkpoint["best"]
+        # new folder for continued training
+        stamp += "_cont_" + datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        if args.tag: stamp += "_"+args.tag.upper()
+        root = os.path.join(CONF.PATH.OUTPUT, stamp)
+        os.makedirs(root, exist_ok=True)
     else:
         stamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
         if args.tag: stamp += "_"+args.tag.upper()
@@ -307,7 +312,7 @@ def train(args):
 
     print("Start training...\n")
     save_info(args, root, num_params, dataset)
-    solver(args.epoch, args.verbose)
+    solver(args.epoch, args.use_rl, args.verbose)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -318,6 +323,7 @@ if __name__ == "__main__":
 
     parser.add_argument("--batch_size", type=int, help="batch size", default=8)
     parser.add_argument("--epoch", type=int, help="number of epochs", default=20)
+    parser.add_argument("--use_rl", action="store_true", help="enable reinforcement learning")
     parser.add_argument("--verbose", type=int, help="iterations of showing verbose", default=10)
     parser.add_argument("--val_step", type=int, help="iterations of validating", default=2000)
     parser.add_argument("--lr", type=float, help="learning rate", default=1e-3)

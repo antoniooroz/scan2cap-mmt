@@ -9,6 +9,8 @@ import numpy as np
 import sys
 import os
 
+import lib.capeval.cider.cider as capcider
+
 sys.path.append(os.path.join(os.getcwd(), "lib")) # HACK add the lib folder
 from utils.nn_distance import nn_distance, huber_loss
 from lib.ap_helper import parse_predictions
@@ -186,7 +188,7 @@ def compute_box_and_sem_cls_loss(data_dict, config):
 
     return center_loss, heading_class_loss, heading_residual_normalized_loss, size_class_loss, size_residual_normalized_loss, sem_cls_loss
 
-def compute_cap_loss(data_dict, config, weights):
+def compute_cap_loss(data_dict, config, dataset, weights, rl=False):
     """ Compute cluster caption loss
 
     Args:
@@ -203,24 +205,28 @@ def compute_cap_loss(data_dict, config, weights):
     
     _, _, num_vocabs = pred_caps.shape
 
-    # caption loss
-    criterion = nn.CrossEntropyLoss(ignore_index=0, reduction="none") # changed from cross entropy
-    pred_caps = pred_caps[:,0:target_caps.shape[1],:] # TODO: is this approach good ?
-    cap_loss = criterion(pred_caps.reshape(-1, num_vocabs), target_caps.reshape(-1))
-    """
-    for i in range(pred_caps.shape[0]):
-        print("-----------------------------------------")
-        print("BATCH " + str(i)+":")
-        print("GT: ")
-        print(target_caps[i])
-        print("PRED:")
-        print(pred_caps.argmax(-1)[i])
-    """
-
-    # mask out bad boxes
-    good_bbox_masks = data_dict["good_bbox_masks"].unsqueeze(1).repeat(1, num_words-1) # (B, num_words - 1)
-    good_bbox_masks = good_bbox_masks.reshape(-1) # (B * num_words - 1)
-    cap_loss = torch.sum(cap_loss * good_bbox_masks) / (torch.sum(good_bbox_masks) + 1e-6)
+    if not rl:
+        # caption loss
+        criterion = nn.CrossEntropyLoss(ignore_index=0, reduction="none") # changed from    cross entropy
+        pred_caps = pred_caps[:,0:target_caps.shape[1],:] # TODO: is this approach good ?
+        cap_loss = criterion(pred_caps.reshape(-1, num_vocabs), target_caps.reshape(-1))
+        # mask out bad boxes
+        good_bbox_masks = data_dict["good_bbox_masks"].unsqueeze(1).repeat(1, num_words-1) # (B, num_words - 1)
+        good_bbox_masks = good_bbox_masks.reshape(-1) # (B * num_words - 1)
+        cap_loss = torch.sum(cap_loss * good_bbox_masks) / (torch.sum(good_bbox_masks) + 1e-6)
+    else:
+        # caption loss
+        pred_caps_max = data_dict["lang_cap"].max(-1)
+        caps_gt, caps_gen = prepare_for_cider(target_caps, pred_caps_max.indices, dataset.vocabulary["idx2word"])
+        reward = capcider.Cider().compute_score(caps_gt, caps_gen)[1].astype(np.float32)
+        reward = torch.from_numpy(reward).to(data_dict["lang_cap"].device).view(data_dict["lang_cap"].shape[0])
+        reward_baseline = torch.mean(reward, -1, keepdim=True)
+        cap_loss = -torch.mean(pred_caps_max.values, -1) * (reward - reward_baseline)
+        # mask out bad boxes
+        good_bbox_masks = data_dict["good_bbox_masks"]
+        cap_loss = torch.sum(cap_loss * good_bbox_masks) / (torch.sum(good_bbox_masks) + 1e-6)
+        # For accuracy
+        pred_caps = pred_caps[:,0:target_caps.shape[1],:] 
 
     num_good_bbox = data_dict["good_bbox_masks"].sum()
     if num_good_bbox > 0: # only apply loss on the good boxes
@@ -238,6 +244,28 @@ def compute_cap_loss(data_dict, config, weights):
         cap_acc = torch.zeros(1)[0].cuda()
     
     return cap_loss, cap_acc
+
+def prepare_for_cider(target_caps, pred_caps, idx2word):
+    caps_gt = {}
+    caps_gen = {}
+    for i in range(target_caps.shape[0]):
+        caps_gt[i] = [decode_caption(target_caps[i], idx2word)]
+        caps_gen[i] = [decode_caption(pred_caps[i], idx2word)]
+    return caps_gt, caps_gen
+
+def decode_caption(raw_caption, idx2word):
+    decoded = ["sos"]
+    for token_idx in raw_caption:
+        token_idx = token_idx.item()
+        token = idx2word[str(token_idx)]
+        decoded.append(token)
+        if token == "eos": break
+
+    if "eos" not in decoded: decoded.append("eos")
+    decoded = " ".join(decoded)
+
+    return decoded
+        
 
 def radian_to_label(radians, num_bins=6):
     """
@@ -388,8 +416,8 @@ def compute_object_cls_loss(data_dict, weights):
 
     return cls_loss, cls_acc
 
-def get_scene_cap_loss(data_dict, device, config, weights, 
-    detection=True, caption=True, orientation=False, distance=False, num_bins=CONF.TRAIN.NUM_BINS):
+def get_scene_cap_loss(data_dict, device, config, dataset, weights, 
+    detection=True, caption=True, orientation=False, distance=False, num_bins=CONF.TRAIN.NUM_BINS, rl=False):
     """ Loss functions
 
     Args:
@@ -445,7 +473,7 @@ def get_scene_cap_loss(data_dict, device, config, weights,
         data_dict["box_loss"] = torch.zeros(1)[0].to(device)
 
     if caption:
-        cap_loss, cap_acc = compute_cap_loss(data_dict, config, weights)
+        cap_loss, cap_acc = compute_cap_loss(data_dict, config, dataset, weights, rl)
 
         # store
         data_dict["cap_loss"] = cap_loss

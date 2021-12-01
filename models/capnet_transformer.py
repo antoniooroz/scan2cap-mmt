@@ -44,9 +44,9 @@ class CapNetTransformer(nn.Module):
         self.proposal = ProposalModule(num_class, num_heading_bin, num_size_cluster, mean_size_arr, num_proposal, sampling)
 
         # Meshed Memory Transformer
-        encoder = MemoryAugmentedEncoder(3, 0, d_model=512, d_in=128, num_proposals=num_proposal, attention_module=ScaledDotProductAttentionMemory,
+        encoder = MemoryAugmentedEncoder(3, 0, d_model=256, d_in=128, num_proposals=num_proposal, attention_module=ScaledDotProductAttentionMemory,
                                      attention_module_kwargs={'m': attention_module_memory_slots})
-        decoder = MeshedDecoder(len(vocabulary["word2idx"]), 54, 3, d_model=512)
+        decoder = MeshedDecoder(len(vocabulary["word2idx"]), 54, 3, d_model=256)
         self.transformer = Transformer(encoder, decoder).cuda()
 
     def forward(self, data_dict, use_tf=True, is_eval=False):
@@ -114,5 +114,8 @@ class CapNetTransformer(nn.Module):
     
     def iterative(self, data_dict, use_tf=True, is_eval=False):
         data_dict = self._detection_branch(data_dict, use_tf, is_eval)
-        data_dict = self.transformer.iterative(data_dict, max_len=32, eos_idx=3)
+        data_dict = self.transformer.iterative(data_dict, max_len=30, eos_idx=3, is_eval=is_eval)
         return data_dict
+    
+    def get_best_object_proposal(self, data_dict):
+        return self.transformer.get_best_object_proposal(data_dict)

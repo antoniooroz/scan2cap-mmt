@@ -167,7 +167,7 @@ class Solver():
         else:
             self.bn_scheduler = None
 
-    def __call__(self, epoch, verbose):
+    def __call__(self, epoch, use_rl, verbose):
         # setting
         self.epoch = epoch
         self.verbose = verbose
@@ -180,7 +180,7 @@ class Solver():
                 self._log("epoch {} starting...".format(epoch_id + 1))
 
                 # feed 
-                self._feed(self.dataloader["train"], "train", epoch_id)
+                self._feed(self.dataloader["train"], "train", epoch_id, rl=use_rl)
 
                 # save model
                 self._log("saving last models...\n")
@@ -204,7 +204,7 @@ class Solver():
 
         # finish training
         self._finish(epoch_id)
-
+        
     def _log(self, info_str):
         self.log_fout.write(info_str + "\n")
         self.log_fout.flush()
@@ -290,8 +290,11 @@ class Solver():
         else:
             raise ValueError("invalid phase")
 
-    def _forward(self, data_dict):
-        data_dict = self.model(data_dict, use_tf=self.use_tf)
+    def _forward(self, data_dict, rl=False):
+        if not rl:
+            data_dict = self.model(data_dict, use_tf=self.use_tf)
+        else:
+            data_dict = self.model.iterative(data_dict, is_eval=False)
 
         return data_dict
 
@@ -301,16 +304,18 @@ class Solver():
         self._running_log["loss"].backward()
         self.optimizer.step()
 
-    def _compute_loss(self, data_dict):
+    def _compute_loss(self, data_dict, rl=False):
         data_dict = get_scene_cap_loss(
             data_dict=data_dict, 
             device=self.device,
             config=self.config, 
+            dataset=self.dataset["train"],
             weights=self.dataset["train"].weights,
             detection=self.detection,
             caption=self.caption,
             orientation=self.orientation,
-            distance=self.distance
+            distance=self.distance,
+            rl=rl
         )
 
         # store loss
@@ -363,7 +368,7 @@ class Solver():
             self.log[phase]["rouge"] = 0
             self.log[phase]["meteor"] = 0
 
-    def _feed(self, dataloader, phase, epoch_id, is_eval=False):
+    def _feed(self, dataloader, phase, epoch_id, is_eval=False, rl=False):
         # switch mode
         if is_eval:
             self._set_phase("val") 
@@ -406,8 +411,8 @@ class Solver():
 
                 # forward
                 start = time.time()
-                data_dict = self._forward(data_dict)
-                self._compute_loss(data_dict)
+                data_dict = self._forward(data_dict, rl)
+                self._compute_loss(data_dict, rl)
                 self.log[phase]["forward"].append(time.time() - start)
 
                 # backward

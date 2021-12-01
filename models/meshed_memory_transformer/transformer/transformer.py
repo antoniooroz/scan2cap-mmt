@@ -14,8 +14,8 @@ class Transformer(CaptioningModel):
         self.bos_idx = 3
         self.encoder = encoder
         self.decoder = decoder
-        self.register_state('enc_output', None)
-        self.register_state('mask_enc', None)
+        # self.register_state('enc_output', None)
+        # self.register_state('mask_enc', None)
         self.init_weights()
 
     @property
@@ -45,7 +45,7 @@ class Transformer(CaptioningModel):
         B, N = data_dict["bbox_feature"].shape[0], data_dict["bbox_feature"].shape[1]
         data_dict["lang_ids_model"] = data_dict["lang_ids"][:,0:-1]
         
-        data_dict = self._get_best_object_proposal(data_dict) # [batch_size, object_proposal_features]
+        data_dict = self.get_best_object_proposal(data_dict) # [batch_size, object_proposal_features]
         
         data_dict = self.decoder(data_dict, enc_output, mask_enc)
         return data_dict
@@ -62,10 +62,10 @@ class Transformer(CaptioningModel):
         if mode == 'teacher_forcing':
             raise NotImplementedError
 
-        data_dict = self.decoder(data_dict, self.enc_output, self.mask_enc)
+        data_dict = self.decoder(data_dict, data_dict["enc_output"], data_dict["enc_mask"])
         return data_dict
     
-    def _get_best_object_proposal(self, data_dict):
+    def get_best_object_proposal(self, data_dict):
         target_ids, target_ious = select_target(data_dict)
         B, N, F = data_dict["bbox_feature"].shape[0], data_dict["bbox_feature"].shape[1],  data_dict["bbox_feature"].shape[2]
         # select object features
@@ -81,9 +81,9 @@ class Transformer(CaptioningModel):
         
         return data_dict
     
-    def iterative(self, data_dict, max_len=32, eos_idx=3):
+    def iterative(self, data_dict, max_len=32, eos_idx=3, is_eval=False):
         iterative = IterativeGeneration(self, max_len, eos_idx)
-        return iterative.apply(data_dict)
+        return iterative.apply(data_dict, is_eval=is_eval)
 
 
 class TransformerEnsemble(CaptioningModel):

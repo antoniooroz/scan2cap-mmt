@@ -6,7 +6,7 @@ from models.meshed_memory_transformer.transformer.attention import MultiHeadAtte
 
 
 class EncoderLayer(nn.Module):
-    def __init__(self, d_model=512, d_k=64, d_v=64, h=8, d_ff=2048, dropout=.1, identity_map_reordering=False,
+    def __init__(self, d_model=512, d_k=64, d_v=64, h=8, d_ff=2048, dropout=.5, identity_map_reordering=False,
                  attention_module=None, attention_module_kwargs=None):
         super(EncoderLayer, self).__init__()
         self.identity_map_reordering = identity_map_reordering
@@ -22,7 +22,7 @@ class EncoderLayer(nn.Module):
 
 
 class MultiLevelEncoder(nn.Module):
-    def __init__(self, N, padding_idx, d_model=512, d_k=64, d_v=64, h=8, d_ff=2048, dropout=.1,
+    def __init__(self, N, padding_idx, d_model=512, d_k=64, d_v=64, h=8, d_ff=2048, dropout=.5,
                  identity_map_reordering=False, attention_module=None, attention_module_kwargs=None):
         super(MultiLevelEncoder, self).__init__()
         self.d_model = d_model
@@ -51,7 +51,7 @@ class MultiLevelEncoder(nn.Module):
 class MemoryAugmentedEncoder(MultiLevelEncoder):
     def __init__(self, N, padding_idx, d_in=2048, num_proposals=256, **kwargs): # TODO: d_in should be num_proposals * num_features
         super(MemoryAugmentedEncoder, self).__init__(N, padding_idx, **kwargs)
-        self.fc = nn.Linear(d_in, int(self.d_model))
+        self.fc = nn.Linear(d_in + 3, int(self.d_model))
         self.dropout = nn.Dropout(p=self.dropout)
         self.layer_norm = nn.LayerNorm(int(self.d_model))
         self.num_proposals = num_proposals
@@ -67,13 +67,13 @@ class MemoryAugmentedEncoder(MultiLevelEncoder):
         Returns:
             [type]: [description]
         """
-        object_proposals = data_dict["bbox_feature"] # TODO: Maybe add data_dict["center"] as well
+        object_proposals = torch.cat([data_dict["bbox_feature"], data_dict["center"]], -1).to(data_dict["bbox_feature"].device)
         object_masks = data_dict["bbox_mask"]
         
         B, N, _ = object_proposals.shape
-        object_proposals = object_proposals.reshape(B * N, -1) # [batch_size * num_proposals, feature_size]
+        object_proposals = object_proposals.reshape(B * N, -1) # [batch_size * num_proposals, feature_size + 3]
         
-        out = F.relu(self.fc(object_proposals)) #128 features per object_proposal -> d_model features (default=512)
+        out = F.relu(self.fc(object_proposals)) #128 features and center coordinates (3) per object_proposal -> d_model features (default=512)
         out = self.dropout(out)
         out = self.layer_norm(out)
         out = out.reshape(B, N, -1) # [batch_size, num_proposals, d_model]

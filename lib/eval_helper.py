@@ -167,7 +167,7 @@ def feed_scene_cap(model, device, dataset, dataloader, phase, folder,
 
         with torch.no_grad():
             data_dict = model.iterative(data_dict, use_tf, is_eval)
-            data_dict = get_scene_cap_loss(data_dict, device, DC, weights=dataset.weights, detection=True, caption=False)
+            data_dict = get_scene_cap_loss(data_dict, device, DC, dataset, weights=dataset.weights, detection=True, caption=False)
 
         # unpack
         captions = data_dict["lang_cap"].argmax(-1) # batch_size, num_proposals, max_len - 1
