@@ -9,7 +9,7 @@ from models.meshed_memory_transformer.containers import Module, ModuleList
 
 
 class MeshedDecoderLayer(Module):
-    def __init__(self, d_model=512, d_k=64, d_v=64, h=8, d_ff=2048, dropout=.5, self_att_module=None,
+    def __init__(self, d_model=512, d_k=64, d_v=64, h=8, d_ff=2048, dropout=0, self_att_module=None,
                  enc_att_module=None, self_att_module_kwargs=None, enc_att_module_kwargs=None):
         super(MeshedDecoderLayer, self).__init__()
         self.self_att = MultiHeadAttention(d_model, d_k, d_v, h, dropout, can_be_stateful=True,
@@ -55,7 +55,7 @@ class MeshedDecoderLayer(Module):
 
 
 class MeshedDecoder(Module):
-    def __init__(self, vocab_size, max_len, N_dec, d_model=512, d_k=64, d_v=64, h=8, d_ff=2048, d_object_features = 128, dropout=.5,
+    def __init__(self, vocab_size, max_len, N_dec, d_model=512, d_k=64, d_v=64, h=8, d_ff=2048, d_object_features = 128, dropout=0,
                  self_att_module=None, enc_att_module=None, self_att_module_kwargs=None, enc_att_module_kwargs=None):
         super(MeshedDecoder, self).__init__()
         self.d_model = d_model
@@ -86,6 +86,7 @@ class MeshedDecoder(Module):
             [type]: [description]
         """
         # input (b_s, seq_len)
+        # Previous words
         input = data_dict["lang_ids_model"] 
         
         b_s, seq_len = input.shape[:2]
@@ -100,7 +101,7 @@ class MeshedDecoder(Module):
         
         if self._is_stateful:
             self.running_mask_self_attention = torch.cat([self.running_mask_self_attention, mask_self_attention], -1)
-            mask_self_attention = self.running_mask_self_attention
+            mask_self_attention = self.running_mask_self_attention.gt(0) # TODO: gt correct?
 
         seq = torch.arange(1, seq_len + 1).view(1, -1).expand(b_s, -1).to(input.device)  # (b_s, seq_len)
         seq = seq.masked_fill(mask_queries.squeeze(-1) == 0, 0)
@@ -109,7 +110,7 @@ class MeshedDecoder(Module):
             seq = self.running_seq
 
         obj_emb = F.relu(self.object_fc(data_dict["target_object_proposal"]))
-        obj_emb = obj_emb.repeat_interleave(seq_len, dim=0).reshape(b_s, seq_len, -1)
+        obj_emb = obj_emb.repeat_interleave(seq_len, dim=0).view(b_s, seq_len, -1)
         
         out = self.word_emb(input) + self.pos_emb(seq) + obj_emb
         for i, l in enumerate(self.layers):

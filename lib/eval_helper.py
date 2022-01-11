@@ -25,6 +25,8 @@ from lib.ap_helper import parse_predictions
 from lib.loss_helper import get_scene_cap_loss, get_object_cap_loss
 from utils.box_util import box3d_iou_batch_tensor
 
+from .wandb_table_logger import WandbTableLogger
+
 # constants
 DC = ScannetDatasetConfig()
 
@@ -157,7 +159,7 @@ def decode_targets(data_dict):
     return bbox_corners
 
 def feed_scene_cap(model, device, dataset, dataloader, phase, folder, 
-    use_tf=False, is_eval=True, max_len=CONF.TRAIN.MAX_DES_LEN, save_interm=False, min_iou=CONF.EVAL.MIN_IOU_THRESHOLD, organized=SCANREFER_ORGANIZED):
+    use_tf=False, is_eval=True, max_len=CONF.TRAIN.MAX_DES_LEN, save_interm=False, min_iou=CONF.EVAL.MIN_IOU_THRESHOLD, organized=SCANREFER_ORGANIZED, no_beam_search=False):
     candidates = {}
     intermediates = {}
     for data_dict in tqdm(dataloader):
@@ -166,11 +168,14 @@ def feed_scene_cap(model, device, dataset, dataloader, phase, folder,
             data_dict[key] = data_dict[key].cuda()
 
         with torch.no_grad():
-            data_dict = model.iterative(data_dict, use_tf, is_eval)
+            if no_beam_search:
+                data_dict = model.iterative(data_dict, use_tf, is_eval)
+            else:
+                data_dict = model.beam_search(data_dict, use_tf, is_eval)
             data_dict = get_scene_cap_loss(data_dict, device, DC, dataset, weights=dataset.weights, detection=True, caption=False)
 
         # unpack
-        captions = data_dict["lang_cap"].argmax(-1) # batch_size, num_proposals, max_len - 1
+        captions = data_dict["lang_pred_sentences"] # batch_size, num_proposals, max_len - 1
         dataset_ids = data_dict["dataset_idx"]
         batch_size, num_proposals, _ = captions.shape
 
@@ -387,7 +392,7 @@ def update_interm(interm, candidates, bleu, cider, rouge, meteor):
 
 def eval_cap(model, device, dataset, dataloader, phase, folder, 
     use_tf=False, is_eval=True, max_len=CONF.TRAIN.MAX_DES_LEN, force=False, 
-    mode="scene", save_interm=False, no_caption=False, no_classify=False, min_iou=CONF.EVAL.MIN_IOU_THRESHOLD):
+    mode="scene", save_interm=False, no_caption=False, no_classify=False, min_iou=CONF.EVAL.MIN_IOU_THRESHOLD, wandb_table_logger:WandbTableLogger=None, no_beam_search=False):
     if no_caption:
         bleu = 0
         cider = 0
@@ -425,7 +430,8 @@ def eval_cap(model, device, dataset, dataloader, phase, folder,
         if not os.path.exists(corpus_path) or force:
             print("preparing corpus...")
             if dataset.name == "ScanRefer":
-                raw_data = json.load(open(os.path.join(CONF.PATH.DATA, "ScanRefer_filtered_{}.json".format(phase))))
+                file_name = phase if phase == "val" else "train_small"
+                raw_data = json.load(open(os.path.join(CONF.PATH.DATA, "ScanRefer_filtered_{}.json".format(file_name))))
             elif dataset.name == "ReferIt3D":
                 raw_data = json.load(open(os.path.join(CONF.PATH.DATA, "nr3d_{}.json".format(phase))))
             else:
@@ -451,7 +457,7 @@ def eval_cap(model, device, dataset, dataloader, phase, folder,
         # generate results
         print("generating descriptions...")
         if mode == "scene":
-            candidates = feed_scene_cap(model, device, dataset, dataloader, phase, folder, use_tf, is_eval, max_len, save_interm, min_iou, organized=organized)
+            candidates = feed_scene_cap(model, device, dataset, dataloader, phase, folder, use_tf, is_eval, max_len, save_interm, min_iou, organized=organized, no_beam_search=no_beam_search)
         elif mode == "object":
             candidates, cls_acc = feed_object_cap(model, device, dataset, dataloader, phase, folder, use_tf, is_eval, max_len)
         elif mode == "oracle":
@@ -464,6 +470,9 @@ def eval_cap(model, device, dataset, dataloader, phase, folder,
         candidates = check_candidates(corpus, candidates)
 
         candidates = organize_candidates(corpus, candidates)
+
+        if wandb_table_logger is not None:
+            wandb_table_logger.add_data(corpus, candidates)
 
         with open(pred_path, "w") as f:
             json.dump(candidates, f, indent=4)

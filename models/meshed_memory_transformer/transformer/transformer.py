@@ -6,6 +6,7 @@ from ..captioning_model import CaptioningModel
 from caption_module import select_target
 from lib.config import CONF
 from ..beam_search.iterative import IterativeGeneration
+from ..beam_search.beam_search import BeamSearch
 
 
 class Transformer(CaptioningModel):
@@ -84,6 +85,10 @@ class Transformer(CaptioningModel):
     def iterative(self, data_dict, max_len=32, eos_idx=3, is_eval=False):
         iterative = IterativeGeneration(self, max_len, eos_idx)
         return iterative.apply(data_dict, is_eval=is_eval)
+
+    def beam_search(self, data_dict, max_len=32, eos_idx=3, is_eval=False, beam_size=5):
+        beam_search = BeamSearch(self, max_len, eos_idx, beam_size)
+        return beam_search.apply(data_dict, is_eval=is_eval)
 
 
 class TransformerEnsemble(CaptioningModel):

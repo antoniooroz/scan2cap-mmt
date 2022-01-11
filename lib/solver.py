@@ -11,6 +11,7 @@ import numpy as np
 from tqdm import tqdm
 from tensorboardX import SummaryWriter
 from torch.optim.lr_scheduler import StepLR, MultiStepLR
+from .wandb_table_logger import WandbTableLogger
 
 
 sys.path.append(os.path.join(os.getcwd(), "lib")) # HACK add the lib folder
@@ -19,6 +20,8 @@ from lib.loss_helper import get_scene_cap_loss
 from lib.eval_helper import eval_cap
 from utils.eta import decode_eta
 from lib.pointnet2.pytorch_utils import BNMomentumScheduler
+
+import wandb
 
 
 ITER_REPORT_TEMPLATE = """
@@ -77,7 +80,7 @@ class Solver():
     def __init__(self, model, device, config, dataset, dataloader, optimizer, stamp, val_step=10, 
     detection=True, caption=True, orientation=False, distance=False, use_tf=True,
     lr_decay_step=None, lr_decay_rate=None, bn_decay_step=None, bn_decay_rate=None,
-    criterion="meteor", checkpoint_best=None):
+    criterion="meteor", checkpoint_best=None, no_beam_search=False):
 
         self.epoch = 0                    # set in __call__
         self.verbose = 0                  # set in __call__
@@ -104,6 +107,8 @@ class Solver():
 
         self.criterion = criterion
         self.checkpoint_best = checkpoint_best
+        
+        self.no_beam_search = no_beam_search
 
         self.best = {
             "epoch": 0,
@@ -124,6 +129,10 @@ class Solver():
             "val": {}
         }
         
+
+        self.wandb_table_eval_train = WandbTableLogger("eval_train")
+        self.wandb_table_eval_val = WandbTableLogger("eval_val")
+
         # tensorboard
         os.makedirs(os.path.join(CONF.PATH.OUTPUT, stamp, "tensorboard/train"), exist_ok=True)
         os.makedirs(os.path.join(CONF.PATH.OUTPUT, stamp, "tensorboard/val"), exist_ok=True)
@@ -177,6 +186,7 @@ class Solver():
         
         for epoch_id in range(epoch):
             try:
+                self.epoch_id = epoch_id
                 self._log("epoch {} starting...".format(epoch_id + 1))
 
                 # feed 
@@ -257,6 +267,8 @@ class Solver():
             }
 
     def _dump_log(self, phase, is_eval=False):
+        wandb_log = {}
+
         if phase == "train" and not is_eval:
             log = {
                 "loss": ["loss", "cap_loss", "ori_loss", "dist_loss", "objectness_loss", "vote_loss", "box_loss"],
@@ -265,11 +277,15 @@ class Solver():
             for key in log:
                 for item in log[key]:
                     if self.log[phase][item]:
+                        val = np.mean([v for v in self.log[phase][item]])
+                        
                         self._log_writer[phase].add_scalar(
                             "{}/{}".format(key, item),
-                            np.mean([v for v in self.log[phase][item]]),
+                            val,
                             self._global_iter_id
                         )
+                        wandb_log[phase+"_"+key+"_last/"+item] = self.log[phase][item][-1]
+                        wandb_log[phase+"_"+key+"/"+item] = val
 
         # eval
         if is_eval:
@@ -281,6 +297,9 @@ class Solver():
                         self.log[phase][key],
                         self._global_iter_id
                     )
+                    wandb_log["eval_"+phase+"/"+key] = self.log[phase][key]
+        
+        wandb.log(wandb_log)
 
     def _set_phase(self, phase):
         if phase == "train":
@@ -294,8 +313,9 @@ class Solver():
         if not rl:
             data_dict = self.model(data_dict, use_tf=self.use_tf)
         else:
-            data_dict = self.model.iterative(data_dict, is_eval=False)
-
+            max_len = data_dict["lang_len"].max() - 1            
+            data_dict = self.model.beam_search(data_dict, is_eval=False, max_len=max_len)
+            
         return data_dict
 
     def _backward(self):
@@ -337,6 +357,10 @@ class Solver():
 
 
     def _eval(self, phase):
+        wandb_table_logger = self.wandb_table_eval_train if phase=="train" else self.wandb_table_eval_val
+
+        wandb_table_logger.set_epoch(self.epoch_id)
+
         if self.caption:
             bleu, cider, rouge, meteor = eval_cap(
                 model=self.model,
@@ -348,7 +372,9 @@ class Solver():
                 use_tf=False,
                 max_len=CONF.TRAIN.MAX_DES_LEN,
                 force=True,
-                min_iou=CONF.EVAL.MIN_IOU_THRESHOLD
+                min_iou=CONF.EVAL.MIN_IOU_THRESHOLD,
+                wandb_table_logger=wandb_table_logger,
+                no_beam_search=self.no_beam_search
             )
 
             # dump
@@ -522,6 +548,10 @@ class Solver():
         # export
         for phase in ["train", "val"]:
             self._log_writer[phase].export_scalars_to_json(os.path.join(CONF.PATH.OUTPUT, self.stamp, "tensorboard/{}".format(phase), "all_scalars.json"))
+        
+        self.wandb_table_eval_train.log()
+        self.wandb_table_eval_val.log()
+        wandb.finish()
 
     def _train_report(self, epoch_id):
         # compute ETA
@@ -594,16 +624,38 @@ class Solver():
     
     def _best_report(self):
         self._log("training completed...")
+
+        epoch = self.best["epoch"]
+        bleu_1 = round(self.best["bleu-1"], 5)
+        bleu_2 = round(self.best["bleu-2"], 5)
+        bleu_3 = round(self.best["bleu-3"], 5)
+        bleu_4 = round(self.best["bleu-4"], 5)
+        cider = round(self.best["cider"], 5)
+        rouge = round(self.best["rouge"], 5)
+        meteor = round(self.best["meteor"], 5)
+
         best_report = self.__best_report_template.format(
-            epoch=self.best["epoch"],
-            bleu_1=round(self.best["bleu-1"], 5),
-            bleu_2=round(self.best["bleu-2"], 5),
-            bleu_3=round(self.best["bleu-3"], 5),
-            bleu_4=round(self.best["bleu-4"], 5),
-            cider=round(self.best["cider"], 5),
-            rouge=round(self.best["rouge"], 5),
-            meteor=round(self.best["meteor"], 5)
+            epoch=epoch,
+            bleu_1=bleu_1,
+            bleu_2=bleu_2,
+            bleu_3=bleu_3,
+            bleu_4=bleu_4,
+            cider=cider,
+            rouge=rouge,
+            meteor=meteor
         )
         self._log(best_report)
+
+        wandb.log({
+            "best/epoch": epoch,
+            "best/bleu-1": bleu_1,
+            "best/bleu-2": bleu_2,
+            "best/bleu-3": bleu_3,
+            "best/bleu-4": bleu_4,
+            "best/cider": cider,
+            "best/rouge": rouge,
+            "best/meteor": meteor,
+        })
+
         with open(os.path.join(CONF.PATH.OUTPUT, self.stamp, "best.txt"), "w") as f:
             f.write(best_report)

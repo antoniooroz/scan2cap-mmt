@@ -6,7 +6,7 @@ from models.meshed_memory_transformer.transformer.attention import MultiHeadAtte
 
 
 class EncoderLayer(nn.Module):
-    def __init__(self, d_model=512, d_k=64, d_v=64, h=8, d_ff=2048, dropout=.5, identity_map_reordering=False,
+    def __init__(self, d_model=512, d_k=64, d_v=64, h=8, d_ff=2048, dropout=0, identity_map_reordering=False,
                  attention_module=None, attention_module_kwargs=None):
         super(EncoderLayer, self).__init__()
         self.identity_map_reordering = identity_map_reordering
@@ -22,7 +22,7 @@ class EncoderLayer(nn.Module):
 
 
 class MultiLevelEncoder(nn.Module):
-    def __init__(self, N, padding_idx, d_model=512, d_k=64, d_v=64, h=8, d_ff=2048, dropout=.5,
+    def __init__(self, N, padding_idx, d_model=512, d_k=64, d_v=64, h=8, d_ff=2048, dropout=0,
                  identity_map_reordering=False, attention_module=None, attention_module_kwargs=None):
         super(MultiLevelEncoder, self).__init__()
         self.d_model = d_model
@@ -71,11 +71,11 @@ class MemoryAugmentedEncoder(MultiLevelEncoder):
         object_masks = data_dict["bbox_mask"]
         
         B, N, _ = object_proposals.shape
-        object_proposals = object_proposals.reshape(B * N, -1) # [batch_size * num_proposals, feature_size + 3]
+        object_proposals = object_proposals.view(B * N, -1) # [batch_size * num_proposals, feature_size + 3]
         
         out = F.relu(self.fc(object_proposals)) #128 features and center coordinates (3) per object_proposal -> d_model features (default=512)
         out = self.dropout(out)
         out = self.layer_norm(out)
-        out = out.reshape(B, N, -1) # [batch_size, num_proposals, d_model]
+        out = out.view(B, N, -1) # [batch_size, num_proposals, d_model]
         out[object_masks == 0] = 0
         return super(MemoryAugmentedEncoder, self).forward(out, attention_weights=attention_weights)

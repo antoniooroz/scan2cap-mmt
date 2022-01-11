@@ -18,7 +18,7 @@ class CapNetTransformer(nn.Module):
     no_caption=False, use_topdown=False, query_mode="corner", 
     graph_mode="graph_conv", num_graph_steps=0, use_relation=False, graph_aggr="add",
     use_orientation=False, num_bins=6, use_distance=False, use_new=False, 
-    emb_size=300, hidden_size=512, attention_module_memory_slots=40):
+    emb_size=300, hidden_size=512, attention_module_memory_slots=40, d_model=128, max_len=32, decoder_layers=3, transformer_d_k=64, transformer_d_v=64, transformer_h=8, transformer_d_ff=2048, transformer_dropout=0):
         super().__init__()
 
         self.num_class = num_class
@@ -44,9 +44,30 @@ class CapNetTransformer(nn.Module):
         self.proposal = ProposalModule(num_class, num_heading_bin, num_size_cluster, mean_size_arr, num_proposal, sampling)
 
         # Meshed Memory Transformer
-        encoder = MemoryAugmentedEncoder(3, 0, d_model=256, d_in=128, num_proposals=num_proposal, attention_module=ScaledDotProductAttentionMemory,
-                                     attention_module_kwargs={'m': attention_module_memory_slots})
-        decoder = MeshedDecoder(len(vocabulary["word2idx"]), 54, 3, d_model=256)
+        encoder = MemoryAugmentedEncoder(3, 0, 
+            d_model=d_model, 
+            d_in=128,
+            num_proposals=num_proposal, 
+            d_k=transformer_d_k,
+            d_v=transformer_d_v,
+            h=transformer_h,
+            d_ff=transformer_d_ff,
+            dropout=transformer_dropout,
+            attention_module=ScaledDotProductAttentionMemory,
+            attention_module_kwargs={'m': attention_module_memory_slots}
+        )
+
+        decoder = MeshedDecoder(
+            len(vocabulary["word2idx"]), 
+            max_len, 
+            decoder_layers, 
+            d_model=d_model,
+            d_k = transformer_d_k,
+            d_v = transformer_d_v,
+            h = transformer_h,
+            d_ff = transformer_d_ff,
+            dropout=transformer_dropout
+        )
         self.transformer = Transformer(encoder, decoder).cuda()
 
     def forward(self, data_dict, use_tf=True, is_eval=False):
@@ -106,15 +127,14 @@ class CapNetTransformer(nn.Module):
         data_dict = self.proposal(xyz, features, data_dict)
         return data_dict
     
-    def beam_search(self, data_dict, use_tf=True, is_eval=False):
+    def beam_search(self, data_dict, use_tf=True, is_eval=False, max_len=32, beam_size=5):
         data_dict = self._detection_branch(data_dict, use_tf, is_eval)
-        data_dict["beam_search_max_len"] = 32
-        data_dict = self.transformer.beam_search(data_dict, max_len=data_dict["beam_search_max_len"], eos_idx=3, beam_size=5, out_size=1)
+        data_dict = self.transformer.beam_search(data_dict, max_len=max_len, eos_idx=3, is_eval=is_eval, beam_size=beam_size)
         return data_dict
     
-    def iterative(self, data_dict, use_tf=True, is_eval=False):
+    def iterative(self, data_dict, use_tf=True, is_eval=False, max_len=32):
         data_dict = self._detection_branch(data_dict, use_tf, is_eval)
-        data_dict = self.transformer.iterative(data_dict, max_len=30, eos_idx=3, is_eval=is_eval)
+        data_dict = self.transformer.iterative(data_dict, max_len=max_len, eos_idx=3, is_eval=is_eval)
         return data_dict
     
     def get_best_object_proposal(self, data_dict):

@@ -1,6 +1,7 @@
 # Gitignores by Antonio
 lib/config.py
 *.pyc
+wandb
 
 # dataset
 data/scanrefer*

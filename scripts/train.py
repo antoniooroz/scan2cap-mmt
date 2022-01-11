@@ -12,6 +12,7 @@ import torch
 import torch.optim as optim
 import torch.nn as nn
 import numpy as np
+import wandb
 
 from torch.utils.data import DataLoader
 from datetime import datetime
@@ -74,7 +75,17 @@ def get_model(args, dataset, device):
         use_relation=args.use_relation,
         use_orientation=args.use_orientation,
         use_distance=args.use_distance,
-        use_new=args.use_new
+        use_new=args.use_new,
+        # MMT args
+        attention_module_memory_slots=args.attention_module_memory_slots,
+        d_model=args.d_model,
+        max_len=args.max_len,
+        decoder_layers=args.decoder_layers,
+        transformer_d_k=args.transformer_d_k,
+        transformer_d_v=args.transformer_d_v,
+        transformer_h=args.transformer_h,
+        transformer_d_ff=args.transformer_d_ff,
+        transformer_dropout=args.transformer_dropout
     )
 
     # load pretrained model
@@ -137,14 +148,12 @@ def get_solver(args, dataset, dataloader):
 
     if args.use_checkpoint:
         print("loading checkpoint {}...".format(args.use_checkpoint))
-        stamp = args.use_checkpoint
-        root = os.path.join(CONF.PATH.OUTPUT, stamp)
         checkpoint = torch.load(os.path.join(CONF.PATH.OUTPUT, args.use_checkpoint, "checkpoint.tar"))
         model.load_state_dict(checkpoint["model_state_dict"])
         optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
         checkpoint_best = checkpoint["best"]
         # new folder for continued training
-        stamp += "_cont_" + datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        stamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
         if args.tag: stamp += "_"+args.tag.upper()
         root = os.path.join(CONF.PATH.OUTPUT, stamp)
         os.makedirs(root, exist_ok=True)
@@ -185,7 +194,8 @@ def get_solver(args, dataset, dataloader):
         bn_decay_step=BN_DECAY_STEP,
         bn_decay_rate=BN_DECAY_RATE,
         criterion=args.criterion,
-        checkpoint_best=checkpoint_best
+        checkpoint_best=checkpoint_best,
+        no_beam_search=args.no_beam_search
     )
     num_params = get_num_params(model)
 
@@ -215,7 +225,7 @@ def get_scannet_scene_list(split):
 def get_scanrefer(args):
     if args.dataset == "ScanRefer":
         scanrefer_train = json.load(open(os.path.join(CONF.PATH.DATA, "ScanRefer_filtered_train.json")))
-        scanrefer_eval_train = json.load(open(os.path.join(CONF.PATH.DATA, "ScanRefer_filtered_train.json")))
+        scanrefer_eval_train = json.load(open(os.path.join(CONF.PATH.DATA, "ScanRefer_filtered_train_small.json")))
         scanrefer_eval_val = json.load(open(os.path.join(CONF.PATH.DATA, "ScanRefer_filtered_val.json")))
     elif args.dataset == "ReferIt3D":
         scanrefer_train = json.load(open(os.path.join(CONF.PATH.DATA, "nr3d_train.json")))
@@ -253,6 +263,7 @@ def get_scanrefer(args):
     else:
         # get initial scene list
         train_scene_list = sorted(list(set([data["scene_id"] for data in scanrefer_train])))
+        eval_train_scene_list = sorted(list(set([data["scene_id"] for data in scanrefer_eval_train])))
         val_scene_list = sorted(list(set([data["scene_id"] for data in scanrefer_eval_val])))
 
         # filter data in chosen scenes
@@ -263,7 +274,7 @@ def get_scanrefer(args):
 
         # eval on train
         new_scanrefer_eval_train = []
-        for scene_id in train_scene_list:
+        for scene_id in eval_train_scene_list:
             data = deepcopy(SCANREFER_TRAIN[0])
             data["scene_id"] = scene_id
             new_scanrefer_eval_train.append(data)
@@ -310,7 +321,17 @@ def train(args):
     print("initializing...")
     solver, num_params, root = get_solver(args, dataset, dataloader)
 
+    # TODO: Maybe before get solver with stamp and use config instead of args in get_solver
+    wandb.init(entity="adl4cv_scan2capmmt", project="Scan2CapMMT", name=solver.stamp, reinit=True)
+    config = wandb.config
+    for key in args.__dict__.keys():
+        config[key] = args.__dict__[key]
+        
+    wandb.watch(solver.model, log="all", log_freq=100, log_graph=False)
+
     print("Start training...\n")
+    print("Number of parameter: " + f'{num_params:,}')
+    wandb.log({"extras/num_params": f'{num_params:,}'})
     save_info(args, root, num_params, dataset)
     solver(args.epoch, args.use_rl, args.verbose)
 
@@ -323,7 +344,6 @@ if __name__ == "__main__":
 
     parser.add_argument("--batch_size", type=int, help="batch size", default=8)
     parser.add_argument("--epoch", type=int, help="number of epochs", default=20)
-    parser.add_argument("--use_rl", action="store_true", help="enable reinforcement learning")
     parser.add_argument("--verbose", type=int, help="iterations of showing verbose", default=10)
     parser.add_argument("--val_step", type=int, help="iterations of validating", default=2000)
     parser.add_argument("--lr", type=float, help="learning rate", default=1e-3)
@@ -360,6 +380,20 @@ if __name__ == "__main__":
     parser.add_argument("--use_checkpoint", type=str, help="Specify the checkpoint root", default="")
     
     parser.add_argument("--debug", action="store_true", help="Debug mode.")
+
+    # MMT arguments
+    parser.add_argument("--use_rl", action="store_true", help="enable reinforcement learning")
+    parser.add_argument("--d_model", type=int, default=128)
+    parser.add_argument("--attention_module_memory_slots", type=int, default=40)
+    parser.add_argument("--max_len", type=int, default=32)
+    parser.add_argument("--decoder_layers", type=int, default=3)
+    parser.add_argument("--transformer_d_k", type=int, default=64)
+    parser.add_argument("--transformer_d_v", type=int, default=64)
+    parser.add_argument("--transformer_h", type=int, default=8)
+    parser.add_argument("--transformer_d_ff", type=int, default=2048)
+    parser.add_argument("--transformer_dropout", type=float, default=0)
+    parser.add_argument("--no_beam_search", action="store_true", help="Disables Beam Search for Evaluation")
+
     args = parser.parse_args()
 
     # setting
