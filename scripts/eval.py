@@ -25,7 +25,7 @@ from lib.dataset import ScannetReferenceDataset
 from lib.config import CONF
 from lib.ap_helper import APCalculator, parse_predictions, parse_groundtruths
 from lib.loss_helper import get_scene_cap_loss
-from models.capnet import CapNet
+from models.capnet_transformer import CapNetTransformer
 from lib.eval_helper import eval_cap
 
 # SCANREFER_TRAIN = json.load(open(os.path.join(CONF.PATH.DATA, "ScanRefer_filtered_train.json")))
@@ -56,7 +56,7 @@ def get_dataloader(args, scanrefer, all_scene_list, config):
 def get_model(args, dataset, device, root=CONF.PATH.OUTPUT, eval_pretrained=False):
     # initiate model
     input_channels = int(args.use_multiview) * 128 + int(args.use_normal) * 3 + int(args.use_color) * 3 + int(not args.no_height)
-    model = CapNet(
+    model = CapNetTransformer(
         num_class=DC.num_class,
         vocabulary=dataset.vocabulary,
         embeddings=dataset.glove,
@@ -71,7 +71,17 @@ def get_model(args, dataset, device, root=CONF.PATH.OUTPUT, eval_pretrained=Fals
         query_mode=args.query_mode,
         graph_mode=args.graph_mode,
         num_graph_steps=args.num_graph_steps,
-        use_relation=args.use_relation
+        use_relation=args.use_relation,
+        # MMT args
+        attention_module_memory_slots=args.attention_module_memory_slots,
+        d_model=args.d_model,
+        max_len=args.max_len,
+        decoder_layers=args.decoder_layers,
+        transformer_d_k=args.transformer_d_k,
+        transformer_d_v=args.transformer_d_v,
+        transformer_h=args.transformer_h,
+        transformer_d_ff=args.transformer_d_ff,
+        transformer_dropout=args.transformer_dropout
     )
 
     if eval_pretrained:
@@ -158,7 +168,7 @@ def eval_caption(args):
 
     # evaluate
     bleu, cider, rouge, meteor = eval_cap(model, device, dataset, dataloader, "val", args.folder, args.use_tf, 
-        force=args.force, save_interm=args.save_interm, min_iou=args.min_iou)
+        force=args.force, save_interm=args.save_interm, min_iou=args.min_iou, no_beam_search=args.no_beam_search, beam_size=args.beam_size)
 
     # report
     print("\n----------------------Evaluation-----------------------")
@@ -267,6 +277,20 @@ if __name__ == "__main__":
     
     parser.add_argument("--force", action="store_true", help="generate the results by force")
     parser.add_argument("--save_interm", action="store_true", help="Save the intermediate results")
+
+    # MMT arguments
+    parser.add_argument("--d_model", type=int, default=128)
+    parser.add_argument("--attention_module_memory_slots", type=int, default=40)
+    parser.add_argument("--max_len", type=int, default=32)
+    parser.add_argument("--decoder_layers", type=int, default=3)
+    parser.add_argument("--transformer_d_k", type=int, default=64)
+    parser.add_argument("--transformer_d_v", type=int, default=64)
+    parser.add_argument("--transformer_h", type=int, default=8)
+    parser.add_argument("--transformer_d_ff", type=int, default=2048)
+    parser.add_argument("--transformer_dropout", type=float, default=0)
+    parser.add_argument("--no_beam_search", action="store_true", help="Disables Beam Search for Evaluation")
+    parser.add_argument("--beam_size", type=int, default=5)
+    
     args = parser.parse_args()
 
     # setting

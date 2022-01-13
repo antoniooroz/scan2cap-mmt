@@ -248,7 +248,8 @@ def compute_cap_loss(data_dict, config, dataset, weights, rl=False, wandb_table_
         reward = torch.from_numpy(reward).to(data_dict["lang_cap"].device).view(batch_size, beam_size)
         reward_baseline = torch.mean(reward, -1, keepdim=True)
         pred_caps_max_values = pred_caps_max.values.view(batch_size, beam_size, -1)
-        cap_loss = -torch.mean(pred_caps_max_values, -1) * torch.max(reward - reward_baseline, torch.zeros(reward.shape).to(reward.device))
+        cap_loss = -torch.mean(pred_caps_max_values, -1) * (reward - reward_baseline)
+        cap_loss = torch.max(cap_loss, torch.zeros(cap_loss.shape).to(cap_loss.device))
         # mask out bad boxes
         good_bbox_masks = data_dict["good_bbox_masks"].repeat_interleave(beam_size, dim=0).view(batch_size, beam_size)
         cap_loss = torch.sum(cap_loss * good_bbox_masks) / (torch.sum(good_bbox_masks) + 1e-6)

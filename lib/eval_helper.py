@@ -159,7 +159,7 @@ def decode_targets(data_dict):
     return bbox_corners
 
 def feed_scene_cap(model, device, dataset, dataloader, phase, folder, 
-    use_tf=False, is_eval=True, max_len=CONF.TRAIN.MAX_DES_LEN, save_interm=False, min_iou=CONF.EVAL.MIN_IOU_THRESHOLD, organized=SCANREFER_ORGANIZED, no_beam_search=False):
+    use_tf=False, is_eval=True, max_len=CONF.TRAIN.MAX_DES_LEN, save_interm=False, min_iou=CONF.EVAL.MIN_IOU_THRESHOLD, organized=SCANREFER_ORGANIZED, no_beam_search=False, beam_size=5):
     candidates = {}
     intermediates = {}
     for data_dict in tqdm(dataloader):
@@ -171,7 +171,7 @@ def feed_scene_cap(model, device, dataset, dataloader, phase, folder,
             if no_beam_search:
                 data_dict = model.iterative(data_dict, use_tf, is_eval)
             else:
-                data_dict = model.beam_search(data_dict, use_tf, is_eval)
+                data_dict = model.beam_search(data_dict, use_tf, is_eval, beam_size=beam_size)
             data_dict = get_scene_cap_loss(data_dict, device, DC, dataset, weights=dataset.weights, detection=True, caption=False)
 
         # unpack
@@ -392,7 +392,7 @@ def update_interm(interm, candidates, bleu, cider, rouge, meteor):
 
 def eval_cap(model, device, dataset, dataloader, phase, folder, 
     use_tf=False, is_eval=True, max_len=CONF.TRAIN.MAX_DES_LEN, force=False, 
-    mode="scene", save_interm=False, no_caption=False, no_classify=False, min_iou=CONF.EVAL.MIN_IOU_THRESHOLD, wandb_table_logger:WandbTableLogger=None, no_beam_search=False):
+    mode="scene", save_interm=False, no_caption=False, no_classify=False, min_iou=CONF.EVAL.MIN_IOU_THRESHOLD, wandb_table_logger:WandbTableLogger=None, no_beam_search=False, beam_size=5):
     if no_caption:
         bleu = 0
         cider = 0
@@ -457,7 +457,7 @@ def eval_cap(model, device, dataset, dataloader, phase, folder,
         # generate results
         print("generating descriptions...")
         if mode == "scene":
-            candidates = feed_scene_cap(model, device, dataset, dataloader, phase, folder, use_tf, is_eval, max_len, save_interm, min_iou, organized=organized, no_beam_search=no_beam_search)
+            candidates = feed_scene_cap(model, device, dataset, dataloader, phase, folder, use_tf, is_eval, max_len, save_interm, min_iou, organized=organized, no_beam_search=no_beam_search, beam_size=beam_size)
         elif mode == "object":
             candidates, cls_acc = feed_object_cap(model, device, dataset, dataloader, phase, folder, use_tf, is_eval, max_len)
         elif mode == "oracle":
