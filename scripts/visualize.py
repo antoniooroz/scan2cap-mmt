@@ -61,7 +61,7 @@ def get_dataloader(args, scanrefer, all_scene_list, config):
 def get_model(args, dataset, root=CONF.PATH.OUTPUT):
     # initiate model
     input_channels = int(args.use_multiview) * 128 + int(args.use_normal) * 3 + int(args.use_color) * 3 + int(not args.no_height)
-    model = CapNet(
+    model = CapNetTransformer(
         num_class=DC.num_class,
         vocabulary=dataset.vocabulary,
         embeddings=dataset.glove,
@@ -70,13 +70,16 @@ def get_model(args, dataset, root=CONF.PATH.OUTPUT):
         mean_size_arr=DC.mean_size_arr,
         input_feature_dim=input_channels,
         num_proposal=args.num_proposals,
-        no_caption=False,
+        no_caption=args.no_caption,
         use_topdown=args.use_topdown,
         num_locals=args.num_locals,
         query_mode=args.query_mode,
         graph_mode=args.graph_mode,
         num_graph_steps=args.num_graph_steps,
-        use_relation=args.use_relation
+        use_relation=args.use_relation,
+        use_orientation=args.use_orientation,
+        use_distance=args.use_distance,
+        use_new=args.use_new
     )
 
     # load
@@ -384,22 +387,23 @@ def visualize(args):
             with open(pred_path, "w") as f:
                 json.dump(candidates, f, indent=4)
 
-            gt_object_ids = VOTENET_DATABASE["0|{}_gt_ids".format(scene_id)]
-            gt_object_ids = np.array(gt_object_ids)
-
-            gt_bbox_corners = VOTENET_DATABASE["0|{}_gt_corners".format(scene_id)]
-            gt_bbox_corners = np.array(gt_bbox_corners)
-
-            for i, object_id in enumerate(gt_object_ids):
-                object_id = str(int(object_id))
-                object_name = object_id_to_object_name[scene_id][object_id]
-
-                ply_name = "gt-{}-{}.ply".format(object_id, object_name)
-                ply_path = os.path.join(scene_root, ply_name)
-
-                palette_idx = int(object_id) % len(COLORS)
-                color = COLORS[palette_idx]
-                write_bbox(gt_bbox_corners[i], color, ply_path)
+            # TODO: Learn to print GT bboxes
+            # gt_object_ids = VOTENET_DATABASE["0|{}_gt_ids".format(scene_id)]
+            # gt_object_ids = np.array(gt_object_ids)
+            #
+            # gt_bbox_corners = VOTENET_DATABASE["0|{}_gt_corners".format(scene_id)]
+            # gt_bbox_corners = np.array(gt_bbox_corners)
+            #
+            # for i, object_id in enumerate(gt_object_ids):
+            #     object_id = str(int(object_id))
+            #     object_name = object_id_to_object_name[scene_id][object_id]
+            #
+            #     ply_name = "gt-{}-{}.ply".format(object_id, object_name)
+            #     ply_path = os.path.join(scene_root, ply_name)
+            #
+            #     palette_idx = int(object_id) % len(COLORS)
+            #     color = COLORS[palette_idx]
+            #     write_bbox(gt_bbox_corners[i], color, ply_path)
 
     print("done!")
 
@@ -410,24 +414,62 @@ if __name__ == "__main__":
     parser.add_argument("--batch_size", type=int, help="batch size", default=8)
     parser.add_argument("--scene_id", type=str, help="scene id", default="-1")
 
+    parser.add_argument("--tag", type=str, help="tag for the training, e.g. cuda_wl", default="")
+    parser.add_argument("--dataset", type=str, help="Choose a dataset: ScanRefer or ReferIt3D", default="ScanRefer")
+    parser.add_argument("--gpu", type=str, help="gpu", default="0")
+    parser.add_argument("--seed", type=int, default=42, help="random seed")
+
+    parser.add_argument("--batch_size", type=int, help="batch size", default=8)
+    parser.add_argument("--epoch", type=int, help="number of epochs", default=20)
+    parser.add_argument("--verbose", type=int, help="iterations of showing verbose", default=10)
+    parser.add_argument("--val_step", type=int, help="iterations of validating", default=2000)
+    parser.add_argument("--lr", type=float, help="learning rate", default=1e-3)
+    parser.add_argument("--wd", type=float, help="weight decay", default=1e-5)
+
     parser.add_argument("--num_points", type=int, default=40000, help="Point Number [default: 40000]")
     parser.add_argument("--num_proposals", type=int, default=256, help="Proposal number [default: 256]")
-    parser.add_argument("--num_scenes", type=int, default=-1, help="Number of scenes [default: -1]")
     parser.add_argument("--num_locals", type=int, default=-1, help="Number of local objects [default: -1]")
+    parser.add_argument("--num_scenes", type=int, default=-1, help="Number of scenes [default: -1]")
     parser.add_argument("--num_graph_steps", type=int, default=0, help="Number of graph conv layer [default: 0]")
-    parser.add_argument("--query_mode", type=str, default="corner", help="Mode for querying the local context, [choices: center, corner]")
+
+    parser.add_argument("--criterion", type=str, default="cider", \
+        help="criterion for selecting the best model [choices: bleu-1, bleu-2, bleu-3, bleu-4, cider, rouge, meteor, sum]")
+
+    parser.add_argument("--query_mode", type=str, default="center", help="Mode for querying the local context, [choices: center, corner]")
     parser.add_argument("--graph_mode", type=str, default="edge_conv", help="Mode for querying the local context, [choices: graph_conv, edge_conv]")
     parser.add_argument("--graph_aggr", type=str, default="add", help="Mode for aggregating features, [choices: add, mean, max]")
+
     parser.add_argument("--no_height", action="store_true", help="Do NOT use height signal in input.")
-    
-    parser.add_argument("--use_tf", action="store_true", help="Enable teacher forcing")
+    parser.add_argument("--no_augment", action="store_true", help="Do NOT use height signal in input.")
+    parser.add_argument("--no_detection", action="store_true", help="Do NOT train the detection module.")
+    parser.add_argument("--no_caption", action="store_true", help="Do NOT train the caption module.")
+
+    parser.add_argument("--use_tf", action="store_true", help="enable teacher forcing in inference.")
     parser.add_argument("--use_color", action="store_true", help="Use RGB color in input.")
     parser.add_argument("--use_normal", action="store_true", help="Use RGB color in input.")
     parser.add_argument("--use_multiview", action="store_true", help="Use multiview images.")
-    parser.add_argument("--use_train", action="store_true", help="Use train split in evaluation.")
-    parser.add_argument("--use_last", action="store_true", help="Use the last model")
     parser.add_argument("--use_topdown", action="store_true", help="Use top-down attention for captioning.")
     parser.add_argument("--use_relation", action="store_true", help="Use object-to-object relation in graph.")
+    parser.add_argument("--use_new", action="store_true", help="Use new Top-down module.")
+    parser.add_argument("--use_orientation", action="store_true", help="Use object-to-object orientation loss in graph.")
+    parser.add_argument("--use_distance", action="store_true", help="Use object-to-object distance loss in graph.")
+    parser.add_argument("--use_pretrained", type=str, help="Specify the folder name containing the pretrained detection module.")
+    parser.add_argument("--use_checkpoint", type=str, help="Specify the checkpoint root", default="")
+
+    parser.add_argument("--debug", action="store_true", help="Debug mode.")
+
+    # MMT arguments
+    parser.add_argument("--use_rl", action="store_true", help="enable reinforcement learning")
+    parser.add_argument("--d_model", type=int, default=128)
+    parser.add_argument("--attention_module_memory_slots", type=int, default=40)
+    parser.add_argument("--max_len", type=int, default=32)
+    parser.add_argument("--decoder_layers", type=int, default=3)
+    parser.add_argument("--transformer_d_k", type=int, default=64)
+    parser.add_argument("--transformer_d_v", type=int, default=64)
+    parser.add_argument("--transformer_h", type=int, default=8)
+    parser.add_argument("--transformer_d_ff", type=int, default=2048)
+    parser.add_argument("--transformer_dropout", type=float, default=0)
+    parser.add_argument("--no_beam_search", action="store_true", help="Disables Beam Search for Evaluation")
     args = parser.parse_args()
 
     # setting
