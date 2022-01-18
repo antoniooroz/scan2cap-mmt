@@ -61,7 +61,7 @@ class MeshedDecoder(Module):
         self.d_model = d_model
         self.word_emb = nn.Embedding(vocab_size, d_model, padding_idx=0)
         self.pos_emb = nn.Embedding.from_pretrained(sinusoid_encoding_table(max_len + 1, d_model, 0), freeze=True)
-        self.object_fc = nn.Linear(d_object_features, d_model)
+        #self.object_fc = nn.Linear(d_model, d_model)
         self.layers = ModuleList(
             [MeshedDecoderLayer(d_model, d_k, d_v, h, d_ff, dropout, self_att_module=self_att_module,
                                 enc_att_module=enc_att_module, self_att_module_kwargs=self_att_module_kwargs,
@@ -109,7 +109,8 @@ class MeshedDecoder(Module):
             self.running_seq.add_(1)
             seq = self.running_seq
 
-        obj_emb = F.relu(self.object_fc(data_dict["target_object_proposal"]))
+        obj_emb = data_dict["target_object_proposal"]
+        #obj_emb = F.relu(self.object_fc(data_dict["target_object_proposal"]))
         obj_emb = obj_emb.repeat_interleave(seq_len, dim=0).view(b_s, seq_len, -1)
         
         out = self.word_emb(input) + self.pos_emb(seq) + obj_emb

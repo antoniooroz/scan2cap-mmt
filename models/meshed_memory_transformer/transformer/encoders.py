@@ -51,7 +51,7 @@ class MultiLevelEncoder(nn.Module):
 class MemoryAugmentedEncoder(MultiLevelEncoder):
     def __init__(self, N, padding_idx, d_in=2048, num_proposals=256, **kwargs): # TODO: d_in should be num_proposals * num_features
         super(MemoryAugmentedEncoder, self).__init__(N, padding_idx, **kwargs)
-        self.fc = nn.Linear(d_in + 3, int(self.d_model))
+        self.fc = nn.Linear(d_in + 27, int(self.d_model)) # d_in + bbox_center (3) + corners (24)
         self.dropout = nn.Dropout(p=self.dropout)
         self.layer_norm = nn.LayerNorm(int(self.d_model))
         self.num_proposals = num_proposals
@@ -67,10 +67,11 @@ class MemoryAugmentedEncoder(MultiLevelEncoder):
         Returns:
             [type]: [description]
         """
-        object_proposals = torch.cat([data_dict["bbox_feature"], data_dict["center"]], -1).to(data_dict["bbox_feature"].device)
+        B, N, _ = data_dict["bbox_feature"].shape
+        
+        object_proposals = torch.cat([data_dict["bbox_feature"], data_dict["center"], data_dict["bbox_corner"].view(B, N, -1)], -1).type(torch.float).to(data_dict["bbox_feature"].device)
         object_masks = data_dict["bbox_mask"]
         
-        B, N, _ = object_proposals.shape
         object_proposals = object_proposals.view(B * N, -1) # [batch_size * num_proposals, feature_size + 3]
         
         out = F.relu(self.fc(object_proposals)) #128 features and center coordinates (3) per object_proposal -> d_model features (default=512)
@@ -78,4 +79,5 @@ class MemoryAugmentedEncoder(MultiLevelEncoder):
         out = self.layer_norm(out)
         out = out.view(B, N, -1) # [batch_size, num_proposals, d_model]
         out[object_masks == 0] = 0
+        data_dict["encoder_input"] = out
         return super(MemoryAugmentedEncoder, self).forward(out, attention_weights=attention_weights)

@@ -68,10 +68,10 @@ class Transformer(CaptioningModel):
     
     def get_best_object_proposal(self, data_dict):
         target_ids, target_ious = select_target(data_dict)
-        B, N, F = data_dict["bbox_feature"].shape[0], data_dict["bbox_feature"].shape[1],  data_dict["bbox_feature"].shape[2]
+        B, N, F = data_dict["encoder_input"].shape[0], data_dict["encoder_input"].shape[1],  data_dict["encoder_input"].shape[2]
         # select object features
         target_object_proposal = torch.gather(
-            data_dict["bbox_feature"], 1, target_ids.view(B, 1, 1).repeat(1, 1, F)).squeeze(1) # batch_size, feature_size
+            data_dict["encoder_input"], 1, target_ids.view(B, 1, 1).repeat(1, 1, F)).squeeze(1) # batch_size, feature_size
         
         good_bbox_masks = target_ious > CONF.TRAIN.MIN_IOU_THRESHOLD # batch_size
         num_good_bboxes = good_bbox_masks.sum()

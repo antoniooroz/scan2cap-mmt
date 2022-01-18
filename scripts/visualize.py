@@ -28,7 +28,7 @@ from lib.dataset import ScannetReferenceDataset
 from lib.config import CONF
 from lib.ap_helper import APCalculator, parse_predictions, parse_groundtruths
 from lib.loss_helper import get_scene_cap_loss
-from models.capnet import CapNet
+from models.capnet_transformer import CapNetTransformer
 from lib.eval_helper import eval_cap
 from scripts.colors import COLORS
 
@@ -61,7 +61,7 @@ def get_dataloader(args, scanrefer, all_scene_list, config):
 def get_model(args, dataset, root=CONF.PATH.OUTPUT):
     # initiate model
     input_channels = int(args.use_multiview) * 128 + int(args.use_normal) * 3 + int(args.use_color) * 3 + int(not args.no_height)
-    model = CapNet(
+    model = CapNetTransformer(
         num_class=DC.num_class,
         vocabulary=dataset.vocabulary,
         embeddings=dataset.glove,
@@ -76,7 +76,17 @@ def get_model(args, dataset, root=CONF.PATH.OUTPUT):
         query_mode=args.query_mode,
         graph_mode=args.graph_mode,
         num_graph_steps=args.num_graph_steps,
-        use_relation=args.use_relation
+        use_relation=args.use_relation,
+        # MMT args
+        attention_module_memory_slots=args.attention_module_memory_slots,
+        d_model=args.d_model,
+        max_len=args.max_len,
+        decoder_layers=args.decoder_layers,
+        transformer_d_k=args.transformer_d_k,
+        transformer_d_v=args.transformer_d_v,
+        transformer_h=args.transformer_h,
+        transformer_d_ff=args.transformer_d_ff,
+        transformer_dropout=args.transformer_dropout
     )
 
     # load
@@ -304,8 +314,8 @@ def visualize(args):
             data_dict[key] = data_dict[key].cuda()
 
         with torch.no_grad():
-            data_dict = model(data_dict, use_tf=False, is_eval=True)
-            data_dict = get_scene_cap_loss(data_dict, device, DC, weights=dataset.weights, detection=True, caption=False)
+            data_dict = model.iterative(data_dict, use_tf=False, is_eval=True)
+            data_dict = get_scene_cap_loss(data_dict, device, DC, dataset, weights=dataset.weights, detection=True, caption=False, )
 
         # unpack
         captions = data_dict["lang_cap"].argmax(-1) # batch_size, num_proposals, max_len - 1
@@ -384,22 +394,22 @@ def visualize(args):
             with open(pred_path, "w") as f:
                 json.dump(candidates, f, indent=4)
 
-            gt_object_ids = VOTENET_DATABASE["0|{}_gt_ids".format(scene_id)]
-            gt_object_ids = np.array(gt_object_ids)
+            # gt_object_ids = VOTENET_DATABASE["0|{}_gt_ids".format(scene_id)]
+            # gt_object_ids = np.array(gt_object_ids)
 
-            gt_bbox_corners = VOTENET_DATABASE["0|{}_gt_corners".format(scene_id)]
-            gt_bbox_corners = np.array(gt_bbox_corners)
+            # gt_bbox_corners = VOTENET_DATABASE["0|{}_gt_corners".format(scene_id)]
+            # gt_bbox_corners = np.array(gt_bbox_corners)
 
-            for i, object_id in enumerate(gt_object_ids):
-                object_id = str(int(object_id))
-                object_name = object_id_to_object_name[scene_id][object_id]
+            # for i, object_id in enumerate(gt_object_ids):
+            #     object_id = str(int(object_id))
+            #     object_name = object_id_to_object_name[scene_id][object_id]
 
-                ply_name = "gt-{}-{}.ply".format(object_id, object_name)
-                ply_path = os.path.join(scene_root, ply_name)
+            #     ply_name = "gt-{}-{}.ply".format(object_id, object_name)
+            #     ply_path = os.path.join(scene_root, ply_name)
 
-                palette_idx = int(object_id) % len(COLORS)
-                color = COLORS[palette_idx]
-                write_bbox(gt_bbox_corners[i], color, ply_path)
+            #     palette_idx = int(object_id) % len(COLORS)
+            #     color = COLORS[palette_idx]
+            #     write_bbox(gt_bbox_corners[i], color, ply_path)
 
     print("done!")
 
@@ -428,6 +438,18 @@ if __name__ == "__main__":
     parser.add_argument("--use_last", action="store_true", help="Use the last model")
     parser.add_argument("--use_topdown", action="store_true", help="Use top-down attention for captioning.")
     parser.add_argument("--use_relation", action="store_true", help="Use object-to-object relation in graph.")
+    
+    # MMT arguments
+    parser.add_argument("--d_model", type=int, default=128)
+    parser.add_argument("--attention_module_memory_slots", type=int, default=40)
+    parser.add_argument("--max_len", type=int, default=32)
+    parser.add_argument("--decoder_layers", type=int, default=3)
+    parser.add_argument("--transformer_d_k", type=int, default=64)
+    parser.add_argument("--transformer_d_v", type=int, default=64)
+    parser.add_argument("--transformer_h", type=int, default=8)
+    parser.add_argument("--transformer_d_ff", type=int, default=2048)
+    parser.add_argument("--transformer_dropout", type=float, default=0)
+    # TODO: allow beam search
     args = parser.parse_args()
 
     # setting

@@ -36,12 +36,14 @@ class BeamSearch(object):
 
     def apply_eval(self, data_dict, out_size=1, **kwargs):
         enc_output, enc_mask = self.model.encode_for_beam_search(data_dict) # [12, 256, 3, 128]
-        bbox_features = data_dict["bbox_feature"]
+        encoder_input = data_dict["encoder_input"]
+        #bbox_features = data_dict["bbox_feature"]
         lang_caps = []
         lang_pred_sentences = []
         
-        for i in range(bbox_features.shape[0]):
-            data_dict["bbox_feature"] = bbox_features[i].unsqueeze(0)
+        for i in range(encoder_input.shape[0]):
+            data_dict["encoder_input"] = encoder_input[i].unsqueeze(0)
+            data_dict["enc_output"] = enc_output[i].unsqueeze(0)
             data_dict["enc_output"] = enc_output[i].unsqueeze(0)
             data_dict["enc_mask"] = enc_mask[i].unsqueeze(0)
             
@@ -49,22 +51,22 @@ class BeamSearch(object):
             #lang_caps.append(data_dict["lang_cap"])
             lang_pred_sentences.append(data_dict["lang_pred_sentences"])
             
-        data_dict["bbox_feature"] = bbox_features
+        #data_dict["bbox_feature"] = encoder_input
         #data_dict["lang_cap"] = torch.cat(lang_caps, dim=0).cuda()
         data_dict["lang_pred_sentences"] = torch.cat(lang_pred_sentences, dim=0).cuda()
         
         return data_dict
 
     def run_search(self, data_dict, out_size=1, **kwargs):
-        self.b_s_real = utils.get_batch_size(data_dict["bbox_feature"])
-        self.device = utils.get_device(data_dict["bbox_feature"])
+        self.b_s_real = utils.get_batch_size(data_dict["encoder_input"])
+        self.device = utils.get_device(data_dict["encoder_input"])
         
-        num_proposals = data_dict["bbox_feature"].shape[1]
-        device = data_dict["bbox_feature"].device
+        num_proposals = data_dict["encoder_input"].shape[1]
+        device = data_dict["encoder_input"].device
 
         self.b_s = self.b_s_real * num_proposals
         
-        data_dict["target_object_proposal"] = data_dict["bbox_feature"].view(self.b_s, -1)
+        data_dict["target_object_proposal"] = data_dict["encoder_input"].view(self.b_s, -1)
         lang_ids_model = torch.ones([self.b_s, 1]).to(device).int() * 2
         data_dict["lang_ids_model"] = lang_ids_model
         data_dict["enc_output"] = data_dict["enc_output"].repeat_interleave(num_proposals, dim=0) #[batch_size, num_proposals,  3, 128] -> [batch_size * num_proposals, num_proposals,  3, 128]

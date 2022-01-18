@@ -89,7 +89,8 @@ class CapNetTransformer(nn.Module):
             end_points: dict
         """
         data_dict = self._detection_branch(data_dict, use_tf, is_eval)
-
+        
+        if self.num_graph_steps > 0: data_dict = self.graph(data_dict)
         #######################################
         #                                     #
         #      Meshed-Memory-Transformer      #

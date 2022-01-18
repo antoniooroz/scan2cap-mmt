@@ -24,14 +24,15 @@ class IterativeGeneration(object):
             return self.apply_train(data_dict, out_size, **kwargs)
         
     def apply_eval(self, data_dict, out_size=1, **kwargs):
-        self.b_s = utils.get_batch_size(data_dict["bbox_feature"])
-        self.device = utils.get_device(data_dict["bbox_feature"])
-        
         enc_output, enc_mask = self.model.encode_for_beam_search(data_dict) # [12, 256, 3, 128]
-        num_proposals = data_dict["bbox_feature"].shape[1]
-        device = data_dict["bbox_feature"].device
         
-        data_dict["target_object_proposal"] = data_dict["bbox_feature"].view(self.b_s * num_proposals, -1)
+        self.b_s = utils.get_batch_size(data_dict["encoder_input"])
+        self.device = utils.get_device(data_dict["encoder_input"])
+        
+        num_proposals = data_dict["encoder_input"].shape[1]
+        device = data_dict["encoder_input"].device
+        
+        data_dict["target_object_proposal"] = data_dict["encoder_input"].view(self.b_s * num_proposals, -1)
         lang_ids_model = torch.ones([self.b_s * num_proposals, 1]).to(device).int() * 2
         data_dict["lang_ids_model"] = lang_ids_model
         data_dict["enc_output"] = enc_output.repeat_interleave(num_proposals, dim=0) #[batch_size, num_proposals,  3, 128] -> [batch_size * num_proposals, num_proposals,  3, 128]
@@ -62,7 +63,7 @@ class IterativeGeneration(object):
         B, N = data_dict["bbox_feature"].shape[0], data_dict["bbox_feature"].shape[1]
         
         data_dict["lang_ids_model"] = torch.zeros([B * N, data_dict["lang_ids"].shape[1] - 1]).cuda().int()
-        data_dict["target_object_proposal"] = data_dict["bbox_feature"].view(B*N, -1)
+        data_dict["target_object_proposal"] = data_dict["encoder_input"].view(B*N, -1)
         
         return data_dict
     
