@@ -51,7 +51,7 @@ class MultiLevelEncoder(nn.Module):
 class MemoryAugmentedEncoder(MultiLevelEncoder):
     def __init__(self, N, padding_idx, d_in=2048, num_proposals=256, **kwargs): # TODO: d_in should be num_proposals * num_features
         super(MemoryAugmentedEncoder, self).__init__(N, padding_idx, **kwargs)
-        self.fc = nn.Linear(d_in + 27, int(self.d_model)) # d_in + bbox_center (3) + corners (24)
+        self.fc = nn.Linear(d_in, int(self.d_model)) # d_in + bbox_center (3) + corners (24)
         self.dropout = nn.Dropout(p=self.dropout)
         self.layer_norm = nn.LayerNorm(int(self.d_model))
         self.num_proposals = num_proposals
@@ -67,17 +67,22 @@ class MemoryAugmentedEncoder(MultiLevelEncoder):
         Returns:
             [type]: [description]
         """
-        B, N, _ = data_dict["bbox_feature"].shape
+        B, N, _ = data_dict["target_edge_feature"].shape
         
-        object_proposals = torch.cat([data_dict["bbox_feature"], data_dict["center"], data_dict["bbox_corner"].view(B, N, -1)], -1).type(torch.float).to(data_dict["bbox_feature"].device)
-        object_masks = data_dict["bbox_mask"]
+        encoder_input = torch.cat([
+            data_dict["target_object_proposal"].unsqueeze(1),
+            data_dict["target_edge_feature"]
+        ], 1).type(torch.float).to(data_dict["bbox_feature"].device)
+
+        B, N, _ = encoder_input.shape
+
+        #object_masks = data_dict["bbox_mask"] TODO: Object masks necessary with graph?
         
-        object_proposals = object_proposals.view(B * N, -1) # [batch_size * num_proposals, feature_size + 3]
+        object_proposals = encoder_input.view(B * N, -1) # [batch_size * (n_locals+1), feature_size]
         
-        out = F.relu(self.fc(object_proposals)) #128 features and center coordinates (3) per object_proposal -> d_model features (default=512)
+        out = F.relu(self.fc(object_proposals)) #128 features per object_proposal -> d_model features (default=512)
         out = self.dropout(out)
         out = self.layer_norm(out)
-        out = out.view(B, N, -1) # [batch_size, num_proposals, d_model]
-        out[object_masks == 0] = 0
+        out = out.view(B, N, -1) # [batch_size, n_locals+1, d_model]
         data_dict["encoder_input"] = out
         return super(MemoryAugmentedEncoder, self).forward(out, attention_weights=attention_weights)

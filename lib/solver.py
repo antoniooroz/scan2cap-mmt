@@ -12,7 +12,7 @@ from tqdm import tqdm
 from tensorboardX import SummaryWriter
 from torch.optim.lr_scheduler import StepLR, MultiStepLR
 from .wandb_table_logger import WandbTableLogger
-
+import torch.nn as nn
 
 sys.path.append(os.path.join(os.getcwd(), "lib")) # HACK add the lib folder
 from lib.config import CONF
@@ -183,6 +183,7 @@ class Solver():
         self._total_iter["train"] = len(self.dataloader["train"]) * epoch
         self._total_iter["val"] = (len(self.dataloader["eval"]["train"]) + len(self.dataloader["eval"]["val"])) \
              * (self._total_iter["train"] / self.val_step)
+        self.use_rl = use_rl
         
         for epoch_id in range(epoch):
             try:
@@ -322,6 +323,8 @@ class Solver():
         # optimize
         self.optimizer.zero_grad()
         self._running_log["loss"].backward()
+        # if self.use_rl:
+        #     nn.utils.clip_grad_value_(self.model.parameters(), clip_value=0.0001)
         self.optimizer.step()
 
     def _compute_loss(self, data_dict, rl=False):

@@ -109,9 +109,9 @@ class MeshedDecoder(Module):
             self.running_seq.add_(1)
             seq = self.running_seq
 
-        obj_emb = data_dict["target_object_proposal"]
+        obj_emb = data_dict["encoder_input"][:,0,:]
         #obj_emb = F.relu(self.object_fc(data_dict["target_object_proposal"]))
-        obj_emb = obj_emb.repeat_interleave(seq_len, dim=0).view(b_s, seq_len, -1)
+        obj_emb = obj_emb.repeat_interleave(seq_len, dim=0).view(b_s, seq_len, data_dict["encoder_input"].shape[-1])
         
         out = self.word_emb(input) + self.pos_emb(seq) + obj_emb
         for i, l in enumerate(self.layers):

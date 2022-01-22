@@ -38,16 +38,15 @@ class Transformer(CaptioningModel):
             [type]: [description]
         """
         
-        enc_output, mask_enc = self.encoder(data_dict)
-        
-        return self.train_forward(data_dict, enc_output, mask_enc, *args)
+        return self.train_forward(data_dict, *args)
     
-    def train_forward(self, data_dict, enc_output, mask_enc, *args):
-        B, N = data_dict["bbox_feature"].shape[0], data_dict["bbox_feature"].shape[1]
+    def train_forward(self, data_dict, *args):
         data_dict["lang_ids_model"] = data_dict["lang_ids"][:,0:-1]
         
         data_dict = self.get_best_object_proposal(data_dict) # [batch_size, object_proposal_features]
         
+        enc_output, mask_enc = self.encoder(data_dict)
+
         data_dict = self.decoder(data_dict, enc_output, mask_enc)
         return data_dict
 
@@ -56,6 +55,10 @@ class Transformer(CaptioningModel):
                 None, None]
 
     def encode_for_beam_search(self, data_dict):
+        B, N, L, F =  data_dict["edge_feature"].shape
+        data_dict["target_object_proposal"] = data_dict["bbox_feature"].view(B * N, F)
+        data_dict["target_edge_feature"] = data_dict["edge_feature"].view(B * N, L, F)
+
         enc_output, mask_enc = self.encoder(data_dict)
         return enc_output, mask_enc
 
@@ -68,15 +71,18 @@ class Transformer(CaptioningModel):
     
     def get_best_object_proposal(self, data_dict):
         target_ids, target_ious = select_target(data_dict)
-        B, N, F = data_dict["encoder_input"].shape[0], data_dict["encoder_input"].shape[1],  data_dict["encoder_input"].shape[2]
+        B, N, L, F = data_dict["edge_feature"].shape
         # select object features
         target_object_proposal = torch.gather(
-            data_dict["encoder_input"], 1, target_ids.view(B, 1, 1).repeat(1, 1, F)).squeeze(1) # batch_size, feature_size
+            data_dict["bbox_feature"], 1, target_ids.view(B, 1, 1).repeat(1, 1, F)).squeeze(1) # batch_size, feature_size
+        target_edge_feat = torch.gather(
+            data_dict["edge_feature"], 1, target_ids.view(B, 1, 1, 1).repeat(1, 1, L, F)).squeeze(1)
         
         good_bbox_masks = target_ious > CONF.TRAIN.MIN_IOU_THRESHOLD # batch_size
         num_good_bboxes = good_bbox_masks.sum()
         
         data_dict["target_object_proposal"] = target_object_proposal
+        data_dict["target_edge_feature"] = target_edge_feat
         data_dict["pred_ious"] =  target_ious[good_bbox_masks].mean() if num_good_bboxes > 0 else torch.zeros(1)[0].cuda()
         data_dict["good_bbox_masks"] = good_bbox_masks
         

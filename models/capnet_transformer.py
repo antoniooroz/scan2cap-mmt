@@ -8,6 +8,7 @@ sys.path.append(os.path.join(os.getcwd(), "lib")) # HACK add the lib folder
 from models.backbone_module import Pointnet2Backbone
 from models.voting_module import VotingModule
 from models.proposal_module import ProposalModule
+from models.graph_module import GraphModule
 # Meshed Memory Transformer imports
 from models.meshed_memory_transformer.transformer import Transformer, MemoryAugmentedEncoder, MeshedDecoder, ScaledDotProductAttentionMemory
 
@@ -42,6 +43,12 @@ class CapNetTransformer(nn.Module):
 
         # Vote aggregation and object proposal
         self.proposal = ProposalModule(num_class, num_heading_bin, num_size_cluster, mean_size_arr, num_proposal, sampling)
+
+        # Graph Module
+        if num_graph_steps > 0:
+            self.graph = GraphModule(128, 128, num_graph_steps, num_proposal, 128, num_locals, 
+                query_mode, graph_mode, return_edge=use_relation, graph_aggr=graph_aggr, 
+                return_orientation=use_orientation, num_bins=num_bins, return_distance=use_distance)
 
         # Meshed Memory Transformer
         encoder = MemoryAugmentedEncoder(3, 0, 
@@ -90,7 +97,6 @@ class CapNetTransformer(nn.Module):
         """
         data_dict = self._detection_branch(data_dict, use_tf, is_eval)
         
-        if self.num_graph_steps > 0: data_dict = self.graph(data_dict)
         #######################################
         #                                     #
         #      Meshed-Memory-Transformer      #
@@ -126,9 +132,13 @@ class CapNetTransformer(nn.Module):
 
         # --------- PROPOSAL GENERATION ---------
         data_dict = self.proposal(xyz, features, data_dict)
+
+        # --------- GRAPH MODULE ----------------
+        if self.num_graph_steps > 0: data_dict = self.graph(data_dict)
+
         return data_dict
     
-    def beam_search(self, data_dict, use_tf=True, is_eval=False, max_len=32, beam_size=5):
+    def beam_search(self, data_dict, use_tf=True, is_eval=False, max_len=32, beam_size=10):
         data_dict = self._detection_branch(data_dict, use_tf, is_eval)
         data_dict = self.transformer.beam_search(data_dict, max_len=max_len, eos_idx=3, is_eval=is_eval, beam_size=beam_size)
         return data_dict

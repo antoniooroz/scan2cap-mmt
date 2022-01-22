@@ -24,19 +24,16 @@ class IterativeGeneration(object):
             return self.apply_train(data_dict, out_size, **kwargs)
         
     def apply_eval(self, data_dict, out_size=1, **kwargs):
-        enc_output, enc_mask = self.model.encode_for_beam_search(data_dict) # [12, 256, 3, 128]
+        data_dict["enc_output"], data_dict["enc_mask"] = self.model.encode_for_beam_search(data_dict) # [12, 256, 3, 128]
         
-        self.b_s = utils.get_batch_size(data_dict["encoder_input"])
+        self.b_s = utils.get_batch_size(data_dict["bbox_feature"])
         self.device = utils.get_device(data_dict["encoder_input"])
         
-        num_proposals = data_dict["encoder_input"].shape[1]
+        num_proposals = data_dict["bbox_feature"].shape[1]
         device = data_dict["encoder_input"].device
         
-        data_dict["target_object_proposal"] = data_dict["encoder_input"].view(self.b_s * num_proposals, -1)
         lang_ids_model = torch.ones([self.b_s * num_proposals, 1]).to(device).int() * 2
         data_dict["lang_ids_model"] = lang_ids_model
-        data_dict["enc_output"] = enc_output.repeat_interleave(num_proposals, dim=0) #[batch_size, num_proposals,  3, 128] -> [batch_size * num_proposals, num_proposals,  3, 128]
-        data_dict["enc_mask"] = enc_mask.repeat_interleave(num_proposals, dim=0)
         
         with self.model.statefulness(data_dict["target_object_proposal"].shape[0]):
             for t in range(self.max_len):

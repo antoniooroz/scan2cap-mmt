@@ -249,7 +249,7 @@ def compute_cap_loss(data_dict, config, dataset, weights, rl=False, wandb_table_
         reward_baseline = torch.mean(reward, -1, keepdim=True)
         pred_caps_max_values = pred_caps_max.values.view(batch_size, beam_size, -1)
         cap_loss = -torch.mean(pred_caps_max_values, -1) * (reward - reward_baseline)
-        cap_loss = torch.max(cap_loss, torch.zeros(cap_loss.shape).to(cap_loss.device))
+        #cap_loss = torch.max(cap_loss, torch.zeros(cap_loss.shape).to(cap_loss.device))
         # mask out bad boxes
         good_bbox_masks = data_dict["good_bbox_masks"].repeat_interleave(beam_size, dim=0).view(batch_size, beam_size)
         cap_loss = torch.sum(cap_loss * good_bbox_masks) / (torch.sum(good_bbox_masks) + 1e-6)
@@ -524,7 +524,7 @@ def get_scene_cap_loss(data_dict, device, config, dataset, weights,
     # Final loss function
     # loss = data_dict["vote_loss"] + 0.5*data_dict["objectness_loss"] + data_dict["box_loss"] + 0.1*data_dict["sem_cls_loss"] + data_dict["cap_loss"]
 
-    if detection:
+    if detection and not rl:
         loss = data_dict["vote_loss"] + 0.5*data_dict["objectness_loss"] + data_dict["box_loss"] + 0.1*data_dict["sem_cls_loss"]
         loss *= 10 # amplify
         if caption:
@@ -536,9 +536,9 @@ def get_scene_cap_loss(data_dict, device, config, dataset, weights,
             # loss += data_dict["dist_loss"]
     else:
         loss = data_dict["cap_loss"]
-        if orientation:
+        if orientation and not rl:
             loss += 0.1*data_dict["ori_loss"]
-        if distance:
+        if distance and not rl:
             loss += 0.1*data_dict["dist_loss"]
 
     data_dict["loss"] = loss

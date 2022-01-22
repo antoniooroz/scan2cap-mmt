@@ -18,19 +18,13 @@ class BeamSearch(object):
             return self.apply_train(data_dict, out_size, **kwargs)
 
     def apply_train(self, data_dict, out_size=1, **kwargs):
-        enc_output, enc_mask = self.model.encode_for_beam_search(data_dict) # [12, 256, 3, 128]
-        bbox_features = data_dict["bbox_feature"]
-
-        data_dict["enc_output"] = enc_output
-        data_dict["enc_mask"] = enc_mask
-
         data_dict = self.model.get_best_object_proposal(data_dict) # into target_object_proposals
-        data_dict["bbox_feature"] = data_dict["target_object_proposal"].unsqueeze(1)
+        
+        data_dict["enc_output"], data_dict["enc_mask"] = self.model.encoder(data_dict)
+        
         data_dict = self.run_search(data_dict, out_size, **kwargs)
 
-        data_dict["bbox_feature"] = bbox_features
-
-        data_dict["lang_cap"] = data_dict["lang_cap"].view(self.b_s_real * data_dict["lang_cap"].shape[-3], data_dict["lang_cap"].shape[-2], data_dict["lang_cap"].shape[-1])
+        data_dict["lang_cap"] = data_dict["lang_cap"].view(self.b_s * data_dict["lang_cap"].shape[-3], data_dict["lang_cap"].shape[-2], data_dict["lang_cap"].shape[-1])
         
         return data_dict
 
@@ -58,19 +52,13 @@ class BeamSearch(object):
         return data_dict
 
     def run_search(self, data_dict, out_size=1, **kwargs):
-        self.b_s_real = utils.get_batch_size(data_dict["encoder_input"])
+        self.b_s = utils.get_batch_size(data_dict["encoder_input"])
         self.device = utils.get_device(data_dict["encoder_input"])
         
-        num_proposals = data_dict["encoder_input"].shape[1]
         device = data_dict["encoder_input"].device
 
-        self.b_s = self.b_s_real * num_proposals
-        
-        data_dict["target_object_proposal"] = data_dict["encoder_input"].view(self.b_s, -1)
         lang_ids_model = torch.ones([self.b_s, 1]).to(device).int() * 2
         data_dict["lang_ids_model"] = lang_ids_model
-        data_dict["enc_output"] = data_dict["enc_output"].repeat_interleave(num_proposals, dim=0) #[batch_size, num_proposals,  3, 128] -> [batch_size * num_proposals, num_proposals,  3, 128]
-        data_dict["enc_mask"] = data_dict["enc_mask"].repeat_interleave(num_proposals, dim=0)
 
         data_dict["bs_seq_mask"] = torch.ones((self.b_s, self.beam_size, 1), device=self.device)
         data_dict["bs_seq_logprob"] = torch.zeros((self.b_s, 1, 1), device=self.device)
@@ -102,8 +90,6 @@ class BeamSearch(object):
        
         data_dict["lang_pred_sentences"] = outputs
         data_dict["lang_cap"] = all_log_probs
-        data_dict["lang_cap"] = data_dict["lang_cap"].view(self.b_s_real, num_proposals, data_dict["lang_cap"].shape[-3], data_dict["lang_cap"].shape[-2], data_dict["lang_cap"].shape[-1])
-        data_dict["lang_pred_sentences"] = data_dict["lang_pred_sentences"].view(self.b_s_real, num_proposals, data_dict["lang_pred_sentences"].shape[-1])
         
         return data_dict
 
@@ -136,7 +122,7 @@ class BeamSearch(object):
         if t == 0:
             data_dict["enc_output"] = data_dict["enc_output"].repeat_interleave(self.beam_size, dim=0)
             data_dict["enc_mask"] = data_dict["enc_mask"].repeat_interleave(self.beam_size, dim=0)
-            data_dict["target_object_proposal"] = data_dict["target_object_proposal"].repeat_interleave(self.beam_size, dim=0)
+            data_dict["encoder_input"] = data_dict["encoder_input"].repeat_interleave(self.beam_size, dim=0)
 
         data_dict["bs_seq_logprob"] = selected_logprob.unsqueeze(-1)
         data_dict["bs_seq_mask"] = torch.gather(data_dict["bs_seq_mask"], 1, selected_beam.unsqueeze(-1))
