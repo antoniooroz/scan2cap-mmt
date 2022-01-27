@@ -51,9 +51,9 @@ class MultiLevelEncoder(nn.Module):
 class MemoryAugmentedEncoder(MultiLevelEncoder):
     def __init__(self, N, padding_idx, d_in=2048, num_proposals=256, **kwargs): # TODO: d_in should be num_proposals * num_features
         super(MemoryAugmentedEncoder, self).__init__(N, padding_idx, **kwargs)
-        self.fc = nn.Linear(d_in, int(self.d_model)) # d_in + bbox_center (3) + corners (24)
+        self.fc = nn.Linear(d_in, self.d_model - 1) # d_in + bbox_center (3) + corners (24)
         self.dropout = nn.Dropout(p=self.dropout)
-        self.layer_norm = nn.LayerNorm(int(self.d_model))
+        self.layer_norm = nn.LayerNorm(self.d_model - 1)
         self.num_proposals = num_proposals
 
     def forward(self, data_dict, attention_weights=None):
@@ -79,10 +79,13 @@ class MemoryAugmentedEncoder(MultiLevelEncoder):
         #object_masks = data_dict["bbox_mask"] TODO: Object masks necessary with graph?
         
         object_proposals = encoder_input.view(B * N, -1) # [batch_size * (n_locals+1), feature_size]
+
+        target_indicator = torch.tensor([1] + data_dict["target_edge_feature"].shape[1]*[0], device=data_dict["bbox_feature"].device).unsqueeze(0).unsqueeze(-1).repeat_interleave(B, dim=0)
         
         out = F.relu(self.fc(object_proposals)) #128 features per object_proposal -> d_model features (default=512)
         out = self.dropout(out)
         out = self.layer_norm(out)
-        out = out.view(B, N, -1) # [batch_size, n_locals+1, d_model]
+        out = out.view(B, N, -1) # [batch_size, n_locals+1, d_model-1]
+        out = torch.cat([out, target_indicator], dim=-1).to(out.device)
         data_dict["encoder_input"] = out
         return super(MemoryAugmentedEncoder, self).forward(out, attention_weights=attention_weights)

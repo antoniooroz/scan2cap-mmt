@@ -72,17 +72,12 @@ class IterativeGeneration(object):
         self.b_s = utils.get_batch_size(data_dict["bbox_feature"])
         self.device = utils.get_device(data_dict["bbox_feature"])
         
-        enc_output, enc_mask = self.model.encode_for_beam_search(data_dict) # [12, 256, 3, 128]
-        num_proposals = data_dict["bbox_feature"].shape[1]
-        device = data_dict["bbox_feature"].device
-        
         data_dict = self.model.get_best_object_proposal(data_dict) # into target_object_proposals
-        data_dict["bbox_feature"] = data_dict["target_object_proposal"].unsqueeze(1)
         
-        lang_ids_model = torch.ones([self.b_s, 1]).to(device).int() * 2
+        data_dict["enc_output"], data_dict["enc_mask"] = self.model.encoder(data_dict)
+        
+        lang_ids_model = torch.ones([self.b_s, 1]).to(self.device).int() * 2
         data_dict["lang_ids_model"] = lang_ids_model
-        data_dict["enc_output"] = enc_output
-        data_dict["enc_mask"] = enc_mask
         
         with self.model.statefulness(data_dict["target_object_proposal"].shape[0]):
             for t in range(self.max_len):

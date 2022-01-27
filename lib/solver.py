@@ -3,6 +3,7 @@ File Created: Monday, 25th November 2019 1:35:30 pm
 Author: Dave Zhenyu Chen (zhenyu.chen@tum.de)
 '''
 
+import copy
 import os
 import sys
 import time
@@ -314,8 +315,12 @@ class Solver():
         if not rl:
             data_dict = self.model(data_dict, use_tf=self.use_tf)
         else:
-            max_len = data_dict["lang_len"].max() - 1            
+            max_len = data_dict["lang_len"].max() - 1  
+            with torch.no_grad():          
+                data_dict2 = copy.deepcopy(data_dict)
+                data_dict2 = self.model.iterative(data_dict2, is_eval=False, max_len=max_len)
             data_dict = self.model.beam_search(data_dict, is_eval=False, max_len=max_len)
+            data_dict["greedy_preds"] = data_dict2["lang_pred_sentences"]
             
         return data_dict
 

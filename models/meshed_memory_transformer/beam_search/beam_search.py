@@ -29,17 +29,20 @@ class BeamSearch(object):
         return data_dict
 
     def apply_eval(self, data_dict, out_size=1, **kwargs):
+        B, N, F =  data_dict["bbox_feature"].shape
         enc_output, enc_mask = self.model.encode_for_beam_search(data_dict) # [12, 256, 3, 128]
-        encoder_input = data_dict["encoder_input"]
+        #encoder_input = data_dict["encoder_input"]
         #bbox_features = data_dict["bbox_feature"]
         lang_caps = []
         lang_pred_sentences = []
         
-        for i in range(encoder_input.shape[0]):
-            data_dict["encoder_input"] = encoder_input[i].unsqueeze(0)
-            data_dict["enc_output"] = enc_output[i].unsqueeze(0)
-            data_dict["enc_output"] = enc_output[i].unsqueeze(0)
-            data_dict["enc_mask"] = enc_mask[i].unsqueeze(0)
+        enc_output = enc_output.view(B, N, enc_output.shape[-3], enc_output.shape[-2], enc_output.shape[-1])
+        enc_mask = enc_mask.view(B, N, enc_mask.shape[-3], enc_mask.shape[-2], enc_mask.shape[-1])
+        
+        for i in range(B):
+            #data_dict["encoder_input"] = encoder_input[i].unsqueeze(0)
+            data_dict["enc_output"] = enc_output[i]
+            data_dict["enc_mask"] = enc_mask[i]
             
             data_dict = self.run_search(data_dict, out_size, **kwargs)
             #lang_caps.append(data_dict["lang_cap"])
@@ -47,15 +50,15 @@ class BeamSearch(object):
             
         #data_dict["bbox_feature"] = encoder_input
         #data_dict["lang_cap"] = torch.cat(lang_caps, dim=0).cuda()
-        data_dict["lang_pred_sentences"] = torch.cat(lang_pred_sentences, dim=0).cuda()
+        data_dict["lang_pred_sentences"] = torch.cat(lang_pred_sentences, dim=0).cuda().view(B, N, -1)
         
         return data_dict
 
     def run_search(self, data_dict, out_size=1, **kwargs):
-        self.b_s = utils.get_batch_size(data_dict["encoder_input"])
-        self.device = utils.get_device(data_dict["encoder_input"])
+        self.b_s = utils.get_batch_size(data_dict["enc_output"])
+        self.device = utils.get_device(data_dict["enc_output"])
         
-        device = data_dict["encoder_input"].device
+        device = data_dict["enc_output"].device
 
         lang_ids_model = torch.ones([self.b_s, 1]).to(device).int() * 2
         data_dict["lang_ids_model"] = lang_ids_model
@@ -122,7 +125,7 @@ class BeamSearch(object):
         if t == 0:
             data_dict["enc_output"] = data_dict["enc_output"].repeat_interleave(self.beam_size, dim=0)
             data_dict["enc_mask"] = data_dict["enc_mask"].repeat_interleave(self.beam_size, dim=0)
-            data_dict["encoder_input"] = data_dict["encoder_input"].repeat_interleave(self.beam_size, dim=0)
+            #data_dict["encoder_input"] = data_dict["encoder_input"].repeat_interleave(self.beam_size, dim=0)
 
         data_dict["bs_seq_logprob"] = selected_logprob.unsqueeze(-1)
         data_dict["bs_seq_mask"] = torch.gather(data_dict["bs_seq_mask"], 1, selected_beam.unsqueeze(-1))

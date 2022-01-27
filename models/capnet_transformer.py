@@ -138,7 +138,7 @@ class CapNetTransformer(nn.Module):
 
         return data_dict
     
-    def beam_search(self, data_dict, use_tf=True, is_eval=False, max_len=32, beam_size=10):
+    def beam_search(self, data_dict, use_tf=True, is_eval=False, max_len=32, beam_size=5):
         data_dict = self._detection_branch(data_dict, use_tf, is_eval)
         data_dict = self.transformer.beam_search(data_dict, max_len=max_len, eos_idx=3, is_eval=is_eval, beam_size=beam_size)
         return data_dict

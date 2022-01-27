@@ -62,9 +62,10 @@ def decode_caption(raw_caption, idx2word):
             token_idx = token_idx.item()
         else:
             token_idx = int(token_idx)
-
+        
         token = idx2word[str(token_idx)]
-        decoded.append(token)
+        if token != "pad_":
+            decoded.append(token)
         if token == "eos":
             break
 

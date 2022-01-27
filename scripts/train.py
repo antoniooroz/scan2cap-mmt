@@ -152,8 +152,12 @@ def get_solver(args, dataset, dataloader):
     if args.use_checkpoint:
         print("loading checkpoint {}...".format(args.use_checkpoint))
         checkpoint = torch.load(os.path.join(CONF.PATH.OUTPUT, args.use_checkpoint, "checkpoint.tar"))
-        model.load_state_dict(checkpoint["model_state_dict"])
-        optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+        if args.load_best:
+            best_model_state = torch.load(os.path.join(CONF.PATH.OUTPUT, args.use_checkpoint, "model.pth"))
+            model.load_state_dict(best_model_state, strict=False)
+        else:
+            model.load_state_dict(checkpoint["model_state_dict"])
+        #optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
         checkpoint_best = checkpoint["best"]
         # new folder for continued training
         stamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
@@ -396,6 +400,7 @@ if __name__ == "__main__":
     parser.add_argument("--transformer_d_ff", type=int, default=2048)
     parser.add_argument("--transformer_dropout", type=float, default=0)
     parser.add_argument("--no_beam_search", action="store_true", help="Disables Beam Search for Evaluation")
+    parser.add_argument("--load_best", action="store_true", help="Use best model when using checkpoint")
 
     args = parser.parse_args()
 

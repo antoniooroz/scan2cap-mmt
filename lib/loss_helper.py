@@ -9,8 +9,10 @@ import torch.nn.functional as F
 import numpy as np
 import sys
 import os
+import wandb
 
 import lib.capeval.cider.cider as capcider
+import lib.capeval.bleu.bleu as capbleu
 
 sys.path.append(os.path.join(os.getcwd(), "lib")) # HACK add the lib folder
 from utils.nn_distance import nn_distance, huber_loss
@@ -240,25 +242,67 @@ def compute_cap_loss(data_dict, config, dataset, weights, rl=False, wandb_table_
         batch_size = target_caps.shape[0]
         beam_size = int(data_dict["lang_cap"].shape[0] / target_caps.shape[0])
         
-        target_caps_backup = target_caps
+        target_caps_single = target_caps
         target_caps = target_caps.repeat_interleave(beam_size, dim=0)
         pred_caps_max = data_dict["lang_cap"].max(-1)
         caps_gt, caps_gen = prepare_for_cider(target_caps, pred_caps_max.indices, dataset.vocabulary["idx2word"])
-        reward = capcider.Cider().compute_score(caps_gt, caps_gen)[1].astype(np.float32)
-        reward = torch.from_numpy(reward).to(data_dict["lang_cap"].device).view(batch_size, beam_size)
+
+        caps_gt_greedy, caps_gen_greedy = prepare_for_cider(target_caps_single, data_dict["greedy_preds"], dataset.vocabulary["idx2word"])
+
+        #reward = capcider.Cider().compute_score(caps_gt, caps_gen)[1].astype(np.float32)
+        reward = torch.tensor(capbleu.Bleu(4).compute_score(caps_gt, caps_gen)[1][0], dtype=torch.float32, device=data_dict["lang_cap"].device).view(batch_size, beam_size)
+        #reward = torch.from_numpy(reward).to(data_dict["lang_cap"].device)
+
         reward_baseline = torch.mean(reward, -1, keepdim=True)
+        #reward_baseline = capcider.Cider().compute_score(caps_gt_greedy, caps_gen_greedy)[1].astype(np.float32)
+        #reward_baseline = torch.from_numpy(reward_baseline).to(data_dict["lang_cap"].device).view(batch_size, 1)
+
         pred_caps_max_values = pred_caps_max.values.view(batch_size, beam_size, -1)
-        cap_loss = -torch.mean(pred_caps_max_values, -1) * (reward - reward_baseline)
+
+
+        reward_diff = reward - reward_baseline
+        #reward_diff[reward_diff > 0] = 0
+        #reward_diff[reward_diff < 0] = 0
+
+        cap_loss = -torch.mean(pred_caps_max_values, -1) * reward_diff
         #cap_loss = torch.max(cap_loss, torch.zeros(cap_loss.shape).to(cap_loss.device))
         # mask out bad boxes
         good_bbox_masks = data_dict["good_bbox_masks"].repeat_interleave(beam_size, dim=0).view(batch_size, beam_size)
-        cap_loss = torch.sum(cap_loss * good_bbox_masks) / (torch.sum(good_bbox_masks) + 1e-6)
+        cap_loss = torch.mean(cap_loss)
+        
+        double_words = torch.zeros(pred_caps_max.indices[:,1:].shape, device=cap_loss.device)
+        double_words[pred_caps_max.indices[:,1:]==pred_caps_max.indices[:,:-1]] = 1
+        double_words[pred_caps_max.indices[:,1:]==0] = 0
+        
+        reward_loss = cap_loss.clone()
+        duplicate_loss = torch.mean(-pred_caps_max.values[:,1:] * double_words)
+        #cap_loss += duplicate_loss
+        
+        #cap_loss = torch.max(torch.zeros(cap_loss.shape).to(cap_loss.device), cap_loss)
         # For accuracy
         #target_caps = target_caps_backup  
         #caps_gt, caps_gen = prepare_for_cider(target_caps, data_dict["lang_pred_sentences"].squeeze(1), dataset.vocabulary["idx2word"])
         #reward_pred = capcider.Cider().compute_score(caps_gt, caps_gen)[1].astype(np.float32)
         #reward_pred = torch.from_numpy(reward_pred).to(data_dict["lang_pred_sentences"].device).view(batch_size)
         cap_acc = reward[data_dict["good_bbox_masks"] == True].mean()
+        wandb.log({
+            "rl/reward": reward[data_dict["good_bbox_masks"] == True].mean(),
+            "rl/baseline": reward_baseline[data_dict["good_bbox_masks"] == True].mean(),
+            "rl/loss": cap_loss,
+            "rl/loss_reward": reward_loss,
+            "rl/loss_duplicate": duplicate_loss,
+            "rl/duplicates": torch.mean(double_words),
+            "rl/log_probs": torch.mean(pred_caps_max.values)
+        })
+        #print("- - - - - - - - - - - - - -")
+        #print("GT:      " + caps_gt_greedy[0][0])
+        #print("GREEDY (" + str(reward_baseline[0].item()) +"):  " + caps_gen_greedy[0][0])
+        
+        #print("P0 (" + str(reward[0,0].item()) +"): " + caps_gen[0][0])
+        #print("P1 (" + str(reward[0,1].item()) +"): " + caps_gen[1][0])
+        #print("P2 (" + str(reward[0,2].item()) +"): " + caps_gen[2][0])
+        #print("P3 (" + str(reward[0,3].item()) +"): " + caps_gen[3][0])
+        #print("P4 (" + str(reward[0,4].item()) +"): " + caps_gen[4][0])
         
     return cap_loss, cap_acc
 
@@ -275,7 +319,8 @@ def decode_caption(raw_caption, idx2word):
     for token_idx in raw_caption:
         token_idx = token_idx.item()
         token = idx2word[str(token_idx)]
-        decoded.append(token)
+        if token != "pad_":
+            decoded.append(token)
         if token == "eos": break
 
     if "eos" not in decoded: decoded.append("eos")
