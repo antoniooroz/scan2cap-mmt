@@ -22,17 +22,18 @@ class EncoderLayer(nn.Module):
 
 
 class MultiLevelEncoder(nn.Module):
-    def __init__(self, N, padding_idx, d_model=512, d_k=64, d_v=64, h=8, d_ff=2048, dropout=0,
+    def __init__(self, N, padding_idx, no_encoder, d_model=512, d_k=64, d_v=64, h=8, d_ff=2048, dropout=0,
                  identity_map_reordering=False, attention_module=None, attention_module_kwargs=None):
         super(MultiLevelEncoder, self).__init__()
         self.d_model = d_model
         self.dropout = dropout
-        self.layers = nn.ModuleList([EncoderLayer(d_model, d_k, d_v, h, d_ff, dropout,
-                                                  identity_map_reordering=identity_map_reordering,
-                                                  attention_module=attention_module,
-                                                  attention_module_kwargs=attention_module_kwargs)
-                                     for _ in range(N)])
         self.padding_idx = padding_idx
+        if not no_encoder:
+            self.layers = nn.ModuleList([EncoderLayer(d_model, d_k, d_v, h, d_ff, dropout,
+                                                    identity_map_reordering=identity_map_reordering,
+                                                    attention_module=attention_module,
+                                                    attention_module_kwargs=attention_module_kwargs)
+                                        for _ in range(N)])
 
     def forward(self, input, attention_weights=None):
         # input (b_s, seq_len, d_in)
@@ -49,9 +50,10 @@ class MultiLevelEncoder(nn.Module):
 
 
 class MemoryAugmentedEncoder(MultiLevelEncoder):
-    def __init__(self, N, padding_idx, d_in=2048, num_proposals=256, **kwargs): # TODO: d_in should be num_proposals * num_features
-        super(MemoryAugmentedEncoder, self).__init__(N, padding_idx, **kwargs)
-        self.fc = nn.Linear(d_in, self.d_model - 1) # d_in + bbox_center (3) + corners (24)
+    def __init__(self, N, padding_idx, d_in=2048, num_proposals=256, no_encoder=False, **kwargs): # TODO: d_in should be num_proposals * num_features
+        super(MemoryAugmentedEncoder, self).__init__(N, padding_idx, no_encoder, **kwargs)
+        self.no_encoder = no_encoder
+        self.fc = nn.Linear(d_in, self.d_model - 1) # 128 -> 191
         self.dropout = nn.Dropout(p=self.dropout)
         self.layer_norm = nn.LayerNorm(self.d_model - 1)
         self.num_proposals = num_proposals
@@ -81,11 +83,15 @@ class MemoryAugmentedEncoder(MultiLevelEncoder):
         object_proposals = encoder_input.view(B * N, -1) # [batch_size * (n_locals+1), feature_size]
 
         target_indicator = torch.tensor([1] + data_dict["target_edge_feature"].shape[1]*[0], device=data_dict["bbox_feature"].device).unsqueeze(0).unsqueeze(-1).repeat_interleave(B, dim=0)
-        
         out = F.relu(self.fc(object_proposals)) #128 features per object_proposal -> d_model features (default=512)
         out = self.dropout(out)
         out = self.layer_norm(out)
         out = out.view(B, N, -1) # [batch_size, n_locals+1, d_model-1]
         out = torch.cat([out, target_indicator], dim=-1).to(out.device)
         data_dict["encoder_input"] = out
-        return super(MemoryAugmentedEncoder, self).forward(out, attention_weights=attention_weights)
+        
+        if not self.no_encoder:
+            return super(MemoryAugmentedEncoder, self).forward(out, attention_weights=attention_weights)
+        else:
+            attention_mask = (torch.sum(out, -1) == self.padding_idx).unsqueeze(1).unsqueeze(1)
+            return out.unsqueeze(1), attention_mask

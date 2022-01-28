@@ -19,7 +19,7 @@ class CapNetTransformer(nn.Module):
     no_caption=False, use_topdown=False, query_mode="corner", 
     graph_mode="graph_conv", num_graph_steps=0, use_relation=False, graph_aggr="add",
     use_orientation=False, num_bins=6, use_distance=False, use_new=False, 
-    emb_size=300, hidden_size=512, attention_module_memory_slots=40, d_model=128, max_len=32, decoder_layers=3, transformer_d_k=64, transformer_d_v=64, transformer_h=8, transformer_d_ff=2048, transformer_dropout=0):
+    emb_size=300, hidden_size=512, attention_module_memory_slots=40, d_model=128, max_len=32, decoder_layers=3, transformer_d_k=64, transformer_d_v=64, transformer_h=8, transformer_d_ff=2048, transformer_dropout=0, no_encoder=False):
         super().__init__()
 
         self.num_class = num_class
@@ -33,6 +33,8 @@ class CapNetTransformer(nn.Module):
         self.sampling = sampling
         self.no_caption = no_caption
         self.num_graph_steps = num_graph_steps
+        
+        self.no_encoder = no_encoder
 
         # --------- PROPOSAL GENERATION ---------
         # Backbone point feature learning
@@ -55,6 +57,7 @@ class CapNetTransformer(nn.Module):
             d_model=d_model, 
             d_in=128,
             num_proposals=num_proposal, 
+            no_encoder=self.no_encoder,
             d_k=transformer_d_k,
             d_v=transformer_d_v,
             h=transformer_h,
@@ -73,7 +76,8 @@ class CapNetTransformer(nn.Module):
             d_v = transformer_d_v,
             h = transformer_h,
             d_ff = transformer_d_ff,
-            dropout=transformer_dropout
+            dropout=transformer_dropout,
+            no_encoder=self.no_encoder
         )
         self.transformer = Transformer(encoder, decoder).cuda()
 
