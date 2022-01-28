@@ -85,7 +85,8 @@ def get_model(args, dataset, device):
         transformer_d_v=args.transformer_d_v,
         transformer_h=args.transformer_h,
         transformer_d_ff=args.transformer_d_ff,
-        transformer_dropout=args.transformer_dropout
+        transformer_dropout=args.transformer_dropout,
+        no_encoder=args.no_encoder
     )
 
     # load pretrained model
@@ -401,6 +402,7 @@ if __name__ == "__main__":
     parser.add_argument("--transformer_dropout", type=float, default=0)
     parser.add_argument("--no_beam_search", action="store_true", help="Disables Beam Search for Evaluation")
     parser.add_argument("--load_best", action="store_true", help="Use best model when using checkpoint")
+    parser.add_argument("--no_encoder", action="store_true", help="Disables MMT encoder")
 
     args = parser.parse_args()
 

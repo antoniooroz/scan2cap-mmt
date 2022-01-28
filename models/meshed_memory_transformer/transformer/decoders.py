@@ -10,7 +10,7 @@ from models.meshed_memory_transformer.containers import Module, ModuleList
 
 class MeshedDecoderLayer(Module):
     def __init__(self, d_model=512, d_k=64, d_v=64, h=8, d_ff=2048, dropout=0, self_att_module=None,
-                 enc_att_module=None, self_att_module_kwargs=None, enc_att_module_kwargs=None):
+                 enc_att_module=None, self_att_module_kwargs=None, enc_att_module_kwargs=None, no_encoder=False):
         super(MeshedDecoderLayer, self).__init__()
         self.self_att = MultiHeadAttention(d_model, d_k, d_v, h, dropout, can_be_stateful=True,
                                            attention_module=self_att_module,
@@ -21,33 +21,45 @@ class MeshedDecoderLayer(Module):
         self.pwff = PositionWiseFeedForward(d_model, d_ff, dropout)
 
         self.fc_alpha1 = nn.Linear(d_model + d_model, d_model)
-        self.fc_alpha2 = nn.Linear(d_model + d_model, d_model)
-        self.fc_alpha3 = nn.Linear(d_model + d_model, d_model)
+        if not no_encoder:
+            self.fc_alpha2 = nn.Linear(d_model + d_model, d_model)
+            self.fc_alpha3 = nn.Linear(d_model + d_model, d_model)
+        
+        self.no_encoder = no_encoder
 
         self.init_weights()
 
     def init_weights(self):
         nn.init.xavier_uniform_(self.fc_alpha1.weight)
-        nn.init.xavier_uniform_(self.fc_alpha2.weight)
-        nn.init.xavier_uniform_(self.fc_alpha3.weight)
         nn.init.constant_(self.fc_alpha1.bias, 0)
-        nn.init.constant_(self.fc_alpha2.bias, 0)
-        nn.init.constant_(self.fc_alpha3.bias, 0)
+        
+        if not self.no_encoder:
+            nn.init.xavier_uniform_(self.fc_alpha2.weight)
+            nn.init.xavier_uniform_(self.fc_alpha3.weight)
+            nn.init.constant_(self.fc_alpha2.bias, 0)
+            nn.init.constant_(self.fc_alpha3.bias, 0)
 
     def forward(self, input, enc_output, mask_pad, mask_self_att, mask_enc_att):
         self_att = self.self_att(input, input, input, mask_self_att)
         self_att = self_att * mask_pad
 
-        enc_att1 = self.enc_att(self_att, enc_output[:, 0], enc_output[:, 0], mask_enc_att) * mask_pad
-        enc_att2 = self.enc_att(self_att, enc_output[:, 1], enc_output[:, 1], mask_enc_att) * mask_pad
-        enc_att3 = self.enc_att(self_att, enc_output[:, 2], enc_output[:, 2], mask_enc_att) * mask_pad
+        if not self.no_encoder:
+            enc_att1 = self.enc_att(self_att, enc_output[:, 0], enc_output[:, 0], mask_enc_att) * mask_pad
+            enc_att2 = self.enc_att(self_att, enc_output[:, 1], enc_output[:, 1], mask_enc_att) * mask_pad
+            enc_att3 = self.enc_att(self_att, enc_output[:, 2], enc_output[:, 2], mask_enc_att) * mask_pad
 
-        alpha1 = torch.sigmoid(self.fc_alpha1(torch.cat([self_att, enc_att1], -1)))
-        alpha2 = torch.sigmoid(self.fc_alpha2(torch.cat([self_att, enc_att2], -1)))
-        alpha3 = torch.sigmoid(self.fc_alpha3(torch.cat([self_att, enc_att3], -1)))
+            alpha1 = torch.sigmoid(self.fc_alpha1(torch.cat([self_att, enc_att1], -1)))
+            alpha2 = torch.sigmoid(self.fc_alpha2(torch.cat([self_att, enc_att2], -1)))
+            alpha3 = torch.sigmoid(self.fc_alpha3(torch.cat([self_att, enc_att3], -1)))
 
-        enc_att = (enc_att1 * alpha1 + enc_att2 * alpha2 + enc_att3 * alpha3) / np.sqrt(3)
-        enc_att = enc_att * mask_pad
+            enc_att = (enc_att1 * alpha1 + enc_att2 * alpha2 + enc_att3 * alpha3) / np.sqrt(3)
+            enc_att = enc_att * mask_pad
+        else:
+            enc_att1 = self.enc_att(self_att, enc_output[:, 0], enc_output[:, 0], mask_enc_att) * mask_pad
+            alpha1 = torch.sigmoid(self.fc_alpha1(torch.cat([self_att, enc_att1], -1)))
+            
+            enc_att = enc_att1 * alpha1
+            enc_att = enc_att * mask_pad
 
         ff = self.pwff(enc_att)
         ff = ff * mask_pad
@@ -56,7 +68,7 @@ class MeshedDecoderLayer(Module):
 
 class MeshedDecoder(Module):
     def __init__(self, vocab_size, max_len, N_dec, d_model=512, d_k=64, d_v=64, h=8, d_ff=2048, d_object_features = 128, dropout=0,
-                 self_att_module=None, enc_att_module=None, self_att_module_kwargs=None, enc_att_module_kwargs=None):
+                 self_att_module=None, enc_att_module=None, self_att_module_kwargs=None, enc_att_module_kwargs=None, no_encoder=False):
         super(MeshedDecoder, self).__init__()
         self.d_model = d_model
         self.word_emb = nn.Embedding(vocab_size, d_model, padding_idx=0)
@@ -65,7 +77,7 @@ class MeshedDecoder(Module):
         self.layers = ModuleList(
             [MeshedDecoderLayer(d_model, d_k, d_v, h, d_ff, dropout, self_att_module=self_att_module,
                                 enc_att_module=enc_att_module, self_att_module_kwargs=self_att_module_kwargs,
-                                enc_att_module_kwargs=enc_att_module_kwargs) for _ in range(N_dec)])
+                                enc_att_module_kwargs=enc_att_module_kwargs, no_encoder=no_encoder) for _ in range(N_dec)])
         self.fc = nn.Linear(d_model, vocab_size, bias=False)
         self.max_len = max_len
         self.padding_idx = 0 
