@@ -381,3 +381,10 @@ def get_3d_box_batch(box_size, heading_angle, center):
     corners_3d = np.matmul(corners_3d, np.transpose(R, tuple(tlist)))
     corners_3d += np.expand_dims(center, -2)
     return corners_3d
+
+def rotate_preds(pred_bbox):
+    out = pred_bbox.clone()
+    out[...,[0,1,2]] = out[...,[0,2,1]]
+    out[..., 2] *= -1
+
+    return out

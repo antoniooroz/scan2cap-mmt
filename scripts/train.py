@@ -64,7 +64,7 @@ def get_model(args, dataset, device):
     # Load pretrained 3DETR
     if not args.use_checkpoint:
         # TODO: Clear before sending code
-        sd = torch.load(os.path.join(CONF.PATH.DATA,"tridetr_checkpoints","scannet_masked_ep1080.pth"))
+        sd = torch.load(os.path.join(CONF.PATH.PRETRAINED,"tridetr","scannet_masked_ep1080.pth"))
         #local version
         #sd = torch.load("/home/kagan/adl4cv/Scan2Cap3detr/data/tridetr_checkpoints/scannet_masked_ep1080.pth")
         # add initialized bbox_feature layer
@@ -324,7 +324,7 @@ def train(args):
     solver, num_params, root = get_solver(args, dataset, dataloader)
 
     # TODO: Maybe before get solver with stamp and use config instead of args in get_solver
-    wandb.init(entity="adl4cv_scan2capmmt", project="Scan2CapMMT", name=solver.stamp, reinit=True)
+    wandb.init(entity="adl4cv_scan2capmmt", project="3DETRMMT", name=solver.stamp, reinit=True)
     config = wandb.config
     for key in args.__dict__.keys():
         config[key] = args.__dict__[key]

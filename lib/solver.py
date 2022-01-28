@@ -360,7 +360,7 @@ class Solver():
             caption=self.caption,
             orientation=self.orientation,
             distance=self.distance,
-            rl=rl
+            rl=rl,
             tridetrcriterion=self.tridetr_criterion
         )
 

@@ -222,7 +222,6 @@ def feed_scene_cap(model, device, dataset, dataloader, phase, folder, config , t
             data_dict["object_assignment"].view(batch_size, num_proposals, 1, 1).repeat(1, 1, 8, 3)
         ) # batch_size, num_proposals, 8, 3
         detected_bbox_corners = data_dict["bbox_corner"] # batch_size, num_proposals, 8, 3
-        detected_bbox_centers = data_dict["center"] # batch_size, num_proposals, 3
         
         # compute IoU between each detected box and each ground truth box
         ious = box3d_iou_batch_tensor(

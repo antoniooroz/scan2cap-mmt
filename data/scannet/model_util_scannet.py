@@ -9,6 +9,9 @@ import os
 sys.path.append(os.path.join(os.getcwd(), os.pardir, "lib")) # HACK add the lib folder
 from lib.config import CONF
 from utils.box_util import get_3d_box
+#3detr
+from tridetr.utils.box_util import (flip_axis_to_camera_np, flip_axis_to_camera_tensor,
+                            get_3d_box_batch_np, get_3d_box_batch_tensor)
 
 def in_hull(p, hull):
     from scipy.spatial import Delaunay
@@ -170,3 +173,14 @@ class ScannetDatasetConfig(object):
         obb[:, 3:6] = box_size
         obb[:, 6] = heading_angle*-1
         return obb
+
+    #3DETR
+    # flip_axis_to_camera is making everything flipped. why should it even help?
+    def box_parametrization_to_corners(self, box_center_unnorm, box_size, box_angle):
+        box_center_upright = flip_axis_to_camera_tensor(box_center_unnorm)
+        boxes = get_3d_box_batch_tensor(box_size, box_angle, box_center_upright)
+        return boxes
+    def box_parametrization_to_corners_np(self, box_center_unnorm, box_size, box_angle):
+        box_center_upright = flip_axis_to_camera_np(box_center_unnorm)
+        boxes = get_3d_box_batch_np(box_size, box_angle, box_center_upright)
+        return boxes
