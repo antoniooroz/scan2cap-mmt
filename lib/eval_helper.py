@@ -21,10 +21,10 @@ import lib.capeval.meteor.meteor as capmeteor
 
 from data.scannet.model_util_scannet import ScannetDatasetConfig
 from lib.config import CONF
-from lib.ap_helper import parse_predictions
-from lib.loss_helper import get_scene_cap_loss, get_object_cap_loss
+#from lib.ap_helper import parse_predictions #use 3detr version instead
+from tridetr.utils.ap_calculator import parse_predictions
+from lib.loss_helper import get_scene_cap_loss, get_object_cap_loss, get_detr_and_cap_loss
 from utils.box_util import box3d_iou_batch_tensor
-
 from .wandb_table_logger import WandbTableLogger
 
 # constants
@@ -159,7 +159,7 @@ def decode_targets(data_dict):
 
     return bbox_corners
 
-def feed_scene_cap(model, device, dataset, dataloader, phase, folder, 
+def feed_scene_cap(model, device, dataset, dataloader, phase, folder, config , tridetrcriterion,
     use_tf=False, is_eval=True, max_len=CONF.TRAIN.MAX_DES_LEN, save_interm=False, min_iou=CONF.EVAL.MIN_IOU_THRESHOLD, organized=SCANREFER_ORGANIZED, no_beam_search=False, beam_size=5):
     candidates = {}
     intermediates = {}
@@ -173,7 +173,16 @@ def feed_scene_cap(model, device, dataset, dataloader, phase, folder,
                 data_dict = model.iterative(data_dict, use_tf, is_eval)
             else:
                 data_dict = model.beam_search(data_dict, use_tf, is_eval, beam_size=beam_size)
-            data_dict = get_scene_cap_loss(data_dict, device, DC, dataset, weights=dataset.weights, detection=True, caption=False)
+            data_dict = data_dict = get_detr_and_cap_loss(
+                data_dict=data_dict,
+                device=device,
+                config=config,
+                dataset=dataset,
+                weights=dataset.weights,
+                detection=True,
+                caption=False,
+                tridetrcriterion = tridetrcriterion,
+            )
 
         # unpack
         captions = data_dict["lang_pred_sentences"] # batch_size, num_proposals, max_len - 1
@@ -198,7 +207,7 @@ def feed_scene_cap(model, device, dataset, dataloader, phase, folder,
         nms_masks = torch.LongTensor(data_dict["pred_mask"]).cuda()
 
         # objectness mask
-        obj_masks = torch.argmax(data_dict["objectness_scores"], 2).long()
+        obj_masks = data_dict["bbox_mask"]
 
         # final mask
         nms_masks = nms_masks * obj_masks
@@ -208,8 +217,8 @@ def feed_scene_cap(model, device, dataset, dataloader, phase, folder,
 
         # bbox corners
         assigned_target_bbox_corners = torch.gather(
-            data_dict["gt_box_corner_label"], 
-            1, 
+            data_dict["gt_box_corners"],
+            1,
             data_dict["object_assignment"].view(batch_size, num_proposals, 1, 1).repeat(1, 1, 8, 3)
         ) # batch_size, num_proposals, 8, 3
         detected_bbox_corners = data_dict["bbox_corner"] # batch_size, num_proposals, 8, 3
@@ -391,7 +400,7 @@ def update_interm(interm, candidates, bleu, cider, rouge, meteor):
 
     return interm
 
-def eval_cap(model, device, dataset, dataloader, phase, folder, 
+def eval_cap(model, device, dataset, dataloader, phase, folder, config , tridetrcriterion,
     use_tf=False, is_eval=True, max_len=CONF.TRAIN.MAX_DES_LEN, force=False, 
     mode="scene", save_interm=False, no_caption=False, no_classify=False, min_iou=CONF.EVAL.MIN_IOU_THRESHOLD, wandb_table_logger:WandbTableLogger=None, no_beam_search=False, beam_size=5):
     if no_caption:
@@ -458,7 +467,7 @@ def eval_cap(model, device, dataset, dataloader, phase, folder,
         # generate results
         print("generating descriptions...")
         if mode == "scene":
-            candidates = feed_scene_cap(model, device, dataset, dataloader, phase, folder, use_tf, is_eval, max_len, save_interm, min_iou, organized=organized, no_beam_search=no_beam_search, beam_size=beam_size)
+            candidates = feed_scene_cap(model, device, dataset, dataloader, phase, folder, config , tridetrcriterion, use_tf, is_eval, max_len, save_interm, min_iou, organized=organized, no_beam_search=no_beam_search, beam_size=beam_size)
         elif mode == "object":
             candidates, cls_acc = feed_object_cap(model, device, dataset, dataloader, phase, folder, use_tf, is_eval, max_len)
         elif mode == "oracle":

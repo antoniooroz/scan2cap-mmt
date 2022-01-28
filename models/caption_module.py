@@ -8,7 +8,9 @@ import numpy as np
 sys.path.append(os.path.join(os.getcwd())) # HACK add the root folder
 from data.scannet.model_util_scannet import ScannetDatasetConfig
 from lib.config import CONF
-from utils.box_util import box3d_iou_batch_tensor
+from utils.box_util import box3d_iou_batch_tensor, rotate_preds
+#debug
+import open3d as o3d
 
 # constants
 DC = ScannetDatasetConfig()
@@ -16,6 +18,7 @@ DC = ScannetDatasetConfig()
 def select_target(data_dict):
     # predicted bbox
     pred_bbox = data_dict["bbox_corner"] # batch_size, num_proposals, 8, 3
+    pred_bbox = rotate_preds(pred_bbox)
     batch_size, num_proposals, _, _ = pred_bbox.shape
 
     # ground truth bbox

@@ -23,6 +23,8 @@ from data.scannet.model_util_scannet import ScannetDatasetConfig
 from lib.dataset import ScannetReferenceDataset
 from lib.solver import Solver
 from lib.config import CONF
+from tridetr.models.model_3detr import build_3detr
+from tridetr.criterion import build_criterion
 from models.capnet_transformer import CapNetTransformer
 from scripts.eval_pretrained import SCANREFER_TRAIN
 
@@ -57,12 +59,27 @@ def get_dataloader(args, scanrefer, all_scene_list, split, config, augment, scan
 def get_model(args, dataset, device):
     # initiate model
     input_channels = int(args.use_multiview) * 128 + int(args.use_normal) * 3 + int(args.use_color) * 3 + int(not args.no_height)
+
+    tridetr , _ = build_3detr(args, dataset_config=DC)
+    # Load pretrained 3DETR
+    if not args.use_checkpoint:
+        # TODO: Clear before sending code
+        sd = torch.load(os.path.join(CONF.PATH.DATA,"tridetr_checkpoints","scannet_masked_ep1080.pth"))
+        #local version
+        #sd = torch.load("/home/kagan/adl4cv/Scan2Cap3detr/data/tridetr_checkpoints/scannet_masked_ep1080.pth")
+        # add initialized bbox_feature layer
+        for k, v in tridetr.state_dict().items():
+            if "mlp_heads.bbox_feature" in k:
+                sd["model"][k] = v
+        tridetr.load_state_dict(sd["model"])
+
     model = CapNetTransformer(
         num_class=DC.num_class,
         vocabulary=dataset.vocabulary,
         embeddings=dataset.glove,
         num_heading_bin=DC.num_heading_bin,
         num_size_cluster=DC.num_size_cluster,
+        tridetrmodel=tridetr,
         mean_size_arr=DC.mean_size_arr,
         input_feature_dim=input_channels,
         num_proposal=args.num_proposals,
@@ -88,46 +105,13 @@ def get_model(args, dataset, device):
         transformer_dropout=args.transformer_dropout,
         no_encoder=args.no_encoder
     )
-
-    # load pretrained model
-    print("loading pretrained VoteNet...")
-    pretrained_model = CapNetTransformer(
-        num_class=DC.num_class,
-        vocabulary=dataset.vocabulary,
-        embeddings=dataset.glove,
-        num_heading_bin=DC.num_heading_bin,
-        num_size_cluster=DC.num_size_cluster,
-        mean_size_arr=DC.mean_size_arr,
-        num_proposal=args.num_proposals,
-        input_feature_dim=input_channels,
-        no_caption=True
-    )
-
-    pretrained_name = "PRETRAIN_VOTENET_XYZ"
-    if args.use_color: pretrained_name += "_COLOR"
-    if args.use_multiview: pretrained_name += "_MULTIVIEW"
-    if args.use_normal: pretrained_name += "_NORMAL"
-
-    pretrained_path = os.path.join(CONF.PATH.PRETRAINED, pretrained_name, "model.pth")
-    pretrained_model.load_state_dict(torch.load(pretrained_path), strict=False)
-
-    # mount
-    model.backbone_net = pretrained_model.backbone_net
-    model.vgen = pretrained_model.vgen
-    model.proposal = pretrained_model.proposal
-
-    if args.no_detection:
-        # freeze pointnet++ backbone
-        for param in model.backbone_net.parameters():
+    if not args.unfreeze_3detr:
+        # first freeze all layers in tridetr
+        for param in model.tridetr.parameters():
             param.requires_grad = False
-
-        # freeze voting
-        for param in model.vgen.parameters():
-            param.requires_grad = False
-        
-        # freeze detector
-        for param in model.proposal.parameters():
-            param.requires_grad = False
+        # then unfreeze feature extraction layer for captioning
+        for param in model.tridetr.mlp_heads["bbox_feature"].parameters():
+            param.requires_grad = True
     
     # to device
     model.to(device)
@@ -140,9 +124,18 @@ def get_num_params(model):
 
     return num_params
 
+def get_tridetr_criterion(args, device, dataset_config):
+    tridetr_criterion = build_criterion(args, dataset_config)
+    tridetr_criterion.to(device)
+    return tridetr_criterion
+
 def get_solver(args, dataset, dataloader):
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     model = get_model(args, dataset["train"], device)
+    if args.unfreeze_3detr:
+        tridetr_criterion = get_tridetr_criterion(args,device,dataset_config=DC)
+    else:
+        tridetr_criterion = None
     if args.use_rl:
         optimizer = optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.wd)
     else:
@@ -203,7 +196,8 @@ def get_solver(args, dataset, dataloader):
         bn_decay_rate=BN_DECAY_RATE,
         criterion=args.criterion,
         checkpoint_best=checkpoint_best,
-        no_beam_search=args.no_beam_search
+        no_beam_search=args.no_beam_search,
+        tridetr_criterion = tridetr_criterion
     )
     num_params = get_num_params(model)
 
@@ -345,6 +339,7 @@ def train(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
+    # --------- Scan2Cap Arguments ---------
     parser.add_argument("--tag", type=str, help="tag for the training, e.g. cuda_wl", default="")
     parser.add_argument("--dataset", type=str, help="Choose a dataset: ScanRefer or ReferIt3D", default="ScanRefer")
     parser.add_argument("--gpu", type=str, help="gpu", default="0")
@@ -403,6 +398,67 @@ if __name__ == "__main__":
     parser.add_argument("--no_beam_search", action="store_true", help="Disables Beam Search for Evaluation")
     parser.add_argument("--load_best", action="store_true", help="Use best model when using checkpoint")
     parser.add_argument("--no_encoder", action="store_true", help="Disables MMT encoder")
+
+    # 3DETR arguments
+    parser.add_argument("--unfreeze_3detr", action="store_true", help="Allow 3detr backbone to keep training")
+
+    # TODO: Determine what to parse,
+    #   *which ones affect datalooader & preprocessing,
+    #   *which ones affect the rest?
+    ### Encoder
+    parser.add_argument(
+        "--enc_type", default="vanilla", choices=["masked", "maskedv2", "vanilla"]
+    )
+    # Below options are only valid for vanilla encoder
+    parser.add_argument("--enc_nlayers", default=3, type=int)
+    parser.add_argument("--enc_dim", default=256, type=int)
+    parser.add_argument("--enc_ffn_dim", default=128, type=int)
+    parser.add_argument("--enc_dropout", default=0.1, type=float)
+    parser.add_argument("--enc_nhead", default=4, type=int)
+    parser.add_argument("--enc_pos_embed", default=None, type=str)
+    parser.add_argument("--enc_activation", default="relu", type=str)
+
+    ### Decoder
+    parser.add_argument("--dec_nlayers", default=8, type=int)
+    parser.add_argument("--dec_dim", default=256, type=int)
+    parser.add_argument("--dec_ffn_dim", default=256, type=int)
+    parser.add_argument("--dec_dropout", default=0.1, type=float)
+    parser.add_argument("--dec_nhead", default=4, type=int)
+
+    ### MLP heads for predicting bounding boxes
+    parser.add_argument("--mlp_dropout", default=0.3, type=float)
+    parser.add_argument(
+        "--nsemcls",
+        default=-1,
+        type=int,
+        help="Number of semantic object classes. Can be inferred from dataset",
+    )
+
+    ### Other model params
+    parser.add_argument("--preenc_npoints", default=2048, type=int)
+    parser.add_argument(
+        "--pos_embed", default="fourier", type=str, choices=["fourier", "sine"]
+    )
+    #parser.add_argument("--nqueries", default=256, type=int) #nqueries = num_proposals
+    #parser.add_argument("--use_color", default=False, action="store_true")
+
+    ##### Set Loss #####
+    ### Matcher
+    parser.add_argument("--matcher_giou_cost", default=2, type=float)
+    parser.add_argument("--matcher_cls_cost", default=1, type=float)
+    parser.add_argument("--matcher_center_cost", default=0, type=float)
+    parser.add_argument("--matcher_objectness_cost", default=0, type=float)
+
+    ### Loss Weights
+    parser.add_argument("--loss_giou_weight", default=0, type=float)
+    parser.add_argument("--loss_sem_cls_weight", default=1, type=float)
+    parser.add_argument(
+        "--loss_no_object_weight", default=0.2, type=float
+    )  # "no object" or "background" class for detection
+    parser.add_argument("--loss_angle_cls_weight", default=0.1, type=float)
+    parser.add_argument("--loss_angle_reg_weight", default=0.5, type=float)
+    parser.add_argument("--loss_center_weight", default=5.0, type=float)
+    parser.add_argument("--loss_size_weight", default=1.0, type=float)
 
     args = parser.parse_args()
 

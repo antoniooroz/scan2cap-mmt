@@ -1,0 +1,3 @@
+[submodule "tridetr"]
+	path = tridetr
+	url = https://github.com/kkaytekin/3detr.git

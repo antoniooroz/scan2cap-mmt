@@ -14,7 +14,7 @@ from models.meshed_memory_transformer.transformer import Transformer, MemoryAugm
 
 
 class CapNetTransformer(nn.Module):
-    def __init__(self, num_class, vocabulary, embeddings, num_heading_bin, num_size_cluster, mean_size_arr, 
+    def __init__(self, num_class, vocabulary, embeddings, num_heading_bin, num_size_cluster, mean_size_arr, tridetrmodel,
     input_feature_dim=0, num_proposal=256, num_locals=-1, vote_factor=1, sampling="vote_fps",
     no_caption=False, use_topdown=False, query_mode="corner", 
     graph_mode="graph_conv", num_graph_steps=0, use_relation=False, graph_aggr="add",
@@ -37,15 +37,8 @@ class CapNetTransformer(nn.Module):
         self.no_encoder = no_encoder
 
         # --------- PROPOSAL GENERATION ---------
-        # Backbone point feature learning
-        self.backbone_net = Pointnet2Backbone(input_feature_dim=self.input_feature_dim)
-
-        # Hough voting
-        self.vgen = VotingModule(self.vote_factor, 256)
-
-        # Vote aggregation and object proposal
-        self.proposal = ProposalModule(num_class, num_heading_bin, num_size_cluster, mean_size_arr, num_proposal, sampling)
-
+        # 3DETR
+        self.tridetr = tridetrmodel
         # Graph Module
         if num_graph_steps > 0:
             self.graph = GraphModule(128, 128, num_graph_steps, num_proposal, 128, num_locals, 
@@ -118,25 +111,17 @@ class CapNetTransformer(nn.Module):
         #                                     #
         #######################################
 
-        # --------- HOUGH VOTING ---------
-        data_dict = self.backbone_net(data_dict)
-                
-        # --------- HOUGH VOTING ---------
-        xyz = data_dict["fp2_xyz"]
-        features = data_dict["fp2_features"]
-        data_dict["seed_inds"] = data_dict["fp2_inds"]
-        data_dict["seed_xyz"] = xyz
-        data_dict["seed_features"] = features
-        
-        xyz, features = self.vgen(xyz, features)
-        features_norm = torch.norm(features, p=2, dim=1)
-        features = features.div(features_norm.unsqueeze(1))
-        data_dict["vote_xyz"] = xyz
-        data_dict["vote_features"] = features
-
-        # --------- PROPOSAL GENERATION ---------
-        data_dict = self.proposal(xyz, features, data_dict)
-
+        # --------- 3DETR ---------
+        box_predictions, box_features = self.tridetr(data_dict,encoder_only=False)
+        # For the following modules
+        data_dict["bbox_feature"] = box_predictions["outputs"]["bbox_features"]
+        data_dict["bbox_mask"] = box_predictions["outputs"]["bbox_mask"]
+        data_dict["bbox_corner"] = box_predictions["outputs"]["box_corners"]
+        # For loss calculation
+        data_dict["box_predictions"] = box_predictions
+        data_dict["query_xyz"] = box_predictions["outputs"]["query_xyz"]
+        # DEBUG
+        #data_dict = self.proposal(data_dict["query_xyz"], box_features, data_dict)
         # --------- GRAPH MODULE ----------------
         if self.num_graph_steps > 0: data_dict = self.graph(data_dict)
 

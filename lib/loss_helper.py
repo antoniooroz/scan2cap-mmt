@@ -5,7 +5,6 @@
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 import numpy as np
 import sys
 import os
@@ -18,8 +17,9 @@ sys.path.append(os.path.join(os.getcwd(), "lib")) # HACK add the lib folder
 from utils.nn_distance import nn_distance, huber_loss
 from lib.ap_helper import parse_predictions
 from lib.loss import SoftmaxRankingLoss
-from utils.box_util import get_3d_box, get_3d_box_batch, box3d_iou, box3d_iou_batch
+from utils.box_util import get_3d_box, get_3d_box_batch, box3d_iou, box3d_iou_batch, rotate_preds
 from lib.config import CONF
+from tridetr.utils.dist import reduce_dict
 from lib.wandb_table_logger import WandbTableLogger
 
 FAR_THRESHOLD = 0.6
@@ -327,7 +327,6 @@ def decode_caption(raw_caption, idx2word):
     decoded = " ".join(decoded)
 
     return decoded
-        
 
 def radian_to_label(radians, num_bins=6):
     """
@@ -478,7 +477,115 @@ def compute_object_cls_loss(data_dict, weights):
 
     return cls_loss, cls_acc
 
-def get_scene_cap_loss(data_dict, device, config, dataset, weights, 
+def get_detr_and_cap_loss(data_dict, device, config, dataset, weights,
+    detection=True, caption=True, orientation=False, distance=False,
+    num_bins=CONF.TRAIN.NUM_BINS, rl=False, tridetrcriterion=None, wandb_cap_table=None):
+    """ Loss functions
+
+    Args:
+        data_dict: dict
+        config: dataset config instance
+        reference: flag (False/True)
+    Returns:
+        loss: pytorch scalar tensor
+        data_dict: dict
+    """
+    loss = 0.0
+    # Obj loss
+    if detection:
+        # criterion(outputs, targets). TODO: If time left, make data dict leaner here. it expects only GT info.
+        if tridetrcriterion is not None:
+            loss , loss_dict = tridetrcriterion(data_dict["box_predictions"], data_dict)
+            loss_dict_reduced = reduce_dict(loss_dict)
+            for key in loss_dict_reduced:
+                #do not track all decoder losses
+                if not key[-1].isdigit():
+                    data_dict[key] = loss_dict[key]
+
+        # Calculate pos / neg ratio and objectness accuracy for logging
+        pred_center = data_dict["box_predictions"]["outputs"]["center_unnormalized"]
+        #pred_center = rotate_preds(pred_center)
+        gt_center = data_dict["center_label"][:,:,0:3]
+        B = gt_center.shape[0]
+        K = pred_center.shape[1]
+        K2 = gt_center.shape[1]
+        dist1, ind1, dist2, _ = nn_distance(pred_center, gt_center) # dist1: BxK, dist2: BxK2
+        euclidean_dist1 = torch.sqrt(dist1+1e-6)
+        objectness_label = torch.zeros((B,K), dtype=torch.long).cuda()
+        objectness_mask = torch.zeros((B,K)).cuda()
+        objectness_label[euclidean_dist1<NEAR_THRESHOLD] = 1
+        objectness_mask[euclidean_dist1<NEAR_THRESHOLD] = 1
+        objectness_mask[euclidean_dist1>FAR_THRESHOLD] = 1
+
+        #data_dict["objectness_label"] = objectness_label
+        #data_dict["objectness_mask"] = objectness_mask
+
+        #TODO: Following values are not calculated truly. Either get rid of them or fix
+        data_dict["pos_ratio"] = torch.sum(objectness_label.float().to(device))/float(K*B)
+        data_dict["neg_ratio"] = torch.sum(objectness_mask.float())/float(K*B) - data_dict["pos_ratio"]
+        obj_pred_val = data_dict["bbox_mask"]
+        obj_acc = torch.sum((obj_pred_val==objectness_label.long()).float())/(K*B+1e-6)
+        data_dict["obj_acc"] = obj_acc
+
+        # used later in eval
+        data_dict["object_assignment"] = ind1
+
+    if caption:
+        cap_loss, cap_acc = compute_cap_loss(data_dict, config, dataset, weights, rl, wandb_cap_table)
+
+        # store
+        data_dict["cap_loss"] = cap_loss
+        data_dict["cap_acc"] = cap_acc
+    else:
+        # store
+        data_dict["cap_loss"] = torch.zeros(1)[0].to(device)
+        data_dict["cap_acc"] = torch.zeros(1)[0].to(device)
+        data_dict["pred_ious"] =  torch.zeros(1)[0].to(device)
+
+    if orientation:
+        ori_loss, ori_acc = compute_node_orientation_loss(data_dict, num_bins)
+
+        # store
+        data_dict["ori_loss"] = ori_loss
+        data_dict["ori_acc"] = ori_acc
+    else:
+        # store
+        data_dict["ori_loss"] = torch.zeros(1)[0].to(device)
+        data_dict["ori_acc"] = torch.zeros(1)[0].to(device)
+
+    if distance:
+        dist_loss = compute_node_distance_loss(data_dict)
+
+        # store
+        data_dict["dist_loss"] = dist_loss
+    else:
+        # store
+        data_dict["dist_loss"] = torch.zeros(1)[0].to(device)
+
+    # Final loss function
+    # loss = data_dict["vote_loss"] + 0.5*data_dict["objectness_loss"] + data_dict["box_loss"] + 0.1*data_dict["sem_cls_loss"] + data_dict["cap_loss"]
+
+    if detection and not rl:
+        loss *= 10 # amplify 3detr loss
+        if caption:
+            loss += 10 * data_dict["cap_loss"]
+        if orientation:
+            loss += 0.1*data_dict["ori_loss"]
+        if distance:
+            loss += 0.1*data_dict["dist_loss"]
+            # loss += data_dict["dist_loss"]
+    else:
+        loss = data_dict["cap_loss"]
+        if orientation and not rl:
+            loss += 0.1*data_dict["ori_loss"]
+        if distance and not rl:
+            loss += 0.1*data_dict["dist_loss"]
+
+    data_dict["loss"] = loss
+
+    return data_dict
+
+def get_scene_cap_loss(data_dict, device, config, dataset, weights,
     detection=True, caption=True, orientation=False, distance=False, num_bins=CONF.TRAIN.NUM_BINS, rl=False, wandb_cap_table=None):
     """ Loss functions
 
