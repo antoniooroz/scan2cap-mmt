@@ -29,21 +29,12 @@ class Transformer(CaptioningModel):
                 nn.init.xavier_uniform_(p)
 
     def forward(self, data_dict, is_eval=False, *args):
-        """[summary]
-
-        Args:
-            data_dict
-
-        Returns:
-            [type]: [description]
-        """
-        
         return self.train_forward(data_dict, *args)
     
     def train_forward(self, data_dict, *args):
         data_dict["lang_ids_model"] = data_dict["lang_ids"][:,0:-1]
         
-        data_dict = self.get_best_object_proposal(data_dict) # [batch_size, object_proposal_features]
+        data_dict = self.get_best_object_proposal(data_dict) # get best object proposal for training
         
         enc_output, mask_enc = self.encoder(data_dict)
 
@@ -54,7 +45,7 @@ class Transformer(CaptioningModel):
         return [torch.zeros((b_s, 0), dtype=torch.long, device=device),
                 None, None]
 
-    def encode_for_beam_search(self, data_dict):
+    def encode_for_search(self, data_dict):
         B, N, L, F =  data_dict["edge_feature"].shape
         data_dict["target_object_proposal"] = data_dict["bbox_feature"].view(B * N, F)
         data_dict["target_edge_feature"] = data_dict["edge_feature"].view(B * N, L, F)
@@ -72,11 +63,13 @@ class Transformer(CaptioningModel):
     def get_best_object_proposal(self, data_dict):
         target_ids, target_ious = select_target(data_dict)
         B, N, L, F = data_dict["edge_feature"].shape
+        
         # select object features
         target_object_proposal = torch.gather(
             data_dict["bbox_feature"], 1, target_ids.view(B, 1, 1).repeat(1, 1, F)).squeeze(1) # batch_size, feature_size
         target_edge_feat = torch.gather(
             data_dict["edge_feature"], 1, target_ids.view(B, 1, 1, 1).repeat(1, 1, L, F)).squeeze(1)
+        
         
         good_bbox_masks = target_ious > CONF.TRAIN.MIN_IOU_THRESHOLD # batch_size
         num_good_bboxes = good_bbox_masks.sum()
@@ -95,21 +88,3 @@ class Transformer(CaptioningModel):
     def beam_search(self, data_dict, max_len=32, eos_idx=3, is_eval=False, beam_size=5):
         beam_search = BeamSearch(self, max_len, eos_idx, beam_size)
         return beam_search.apply(data_dict, is_eval=is_eval)
-
-
-class TransformerEnsemble(CaptioningModel):
-    def __init__(self, model: Transformer, weight_files):
-        super(TransformerEnsemble, self).__init__()
-        self.n = len(weight_files)
-        self.models = ModuleList([copy.deepcopy(model) for _ in range(self.n)])
-        for i in range(self.n):
-            state_dict_i = torch.load(weight_files[i])['state_dict']
-            self.models[i].load_state_dict(state_dict_i)
-
-    def step(self, t, prev_output, visual, seq, mode='teacher_forcing', **kwargs):
-        out_ensemble = []
-        for i in range(self.n):
-            out_i = self.models[i].step(t, prev_output, visual, seq, mode, **kwargs)
-            out_ensemble.append(out_i.unsqueeze(0))
-
-        return torch.mean(torch.cat(out_ensemble, 0), dim=0)

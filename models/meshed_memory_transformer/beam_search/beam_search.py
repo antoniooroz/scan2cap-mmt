@@ -6,7 +6,7 @@ class BeamSearch(object):
     def __init__(self, model, max_len: int, eos_idx: int, beam_size: int):
         self.model = model
         self.max_len = max_len
-        self.eos_idx = eos_idx # TODO: Check if given
+        self.eos_idx = eos_idx
         self.beam_size = beam_size
         self.b_s = None
         self.device = None
@@ -18,38 +18,34 @@ class BeamSearch(object):
             return self.apply_train(data_dict, out_size, **kwargs)
 
     def apply_train(self, data_dict, out_size=1, **kwargs):
-        data_dict = self.model.get_best_object_proposal(data_dict) # into target_object_proposals
+        data_dict = self.model.get_best_object_proposal(data_dict) # get best object proposal for training
         
-        data_dict["enc_output"], data_dict["enc_mask"] = self.model.encoder(data_dict)
+        data_dict["enc_output"], data_dict["enc_mask"] = self.model.encoder(data_dict) # Get encodings
         
-        data_dict = self.run_search(data_dict, out_size, **kwargs)
+        data_dict = self.run_search(data_dict, out_size, **kwargs) # Run Beam Search
 
-        data_dict["lang_cap"] = data_dict["lang_cap"].view(self.b_s * data_dict["lang_cap"].shape[-3], data_dict["lang_cap"].shape[-2], data_dict["lang_cap"].shape[-1])
+        data_dict["lang_cap"] = data_dict["lang_cap"].view(self.b_s * data_dict["lang_cap"].shape[-3], data_dict["lang_cap"].shape[-2], data_dict["lang_cap"].shape[-1]) # Transform features into [batch size * num_proposals, max_len, feature_dim]
         
         return data_dict
 
     def apply_eval(self, data_dict, out_size=1, **kwargs):
-        B, N, F =  data_dict["bbox_feature"].shape
-        enc_output, enc_mask = self.model.encode_for_beam_search(data_dict) # [12, 256, 3, 128]
-        #encoder_input = data_dict["encoder_input"]
-        #bbox_features = data_dict["bbox_feature"]
-        lang_caps = []
+        B, N, _ =  data_dict["bbox_feature"].shape
+        enc_output, enc_mask = self.model.encode_for_search(data_dict) # Prepare decoder inputs
         lang_pred_sentences = []
         
+        # Reshaping [B * N, ...] -> [B, N, ...]
         enc_output = enc_output.view(B, N, enc_output.shape[-3], enc_output.shape[-2], enc_output.shape[-1])
         enc_mask = enc_mask.view(B, N, enc_mask.shape[-3], enc_mask.shape[-2], enc_mask.shape[-1])
         
+        # Running Beam Search for each batch seperately due to memory limits
+        # Enables to still train on higher batch size and not to run into memory limits while evaluating
         for i in range(B):
-            #data_dict["encoder_input"] = encoder_input[i].unsqueeze(0)
             data_dict["enc_output"] = enc_output[i]
             data_dict["enc_mask"] = enc_mask[i]
             
             data_dict = self.run_search(data_dict, out_size, **kwargs)
-            #lang_caps.append(data_dict["lang_cap"])
             lang_pred_sentences.append(data_dict["lang_pred_sentences"])
             
-        #data_dict["bbox_feature"] = encoder_input
-        #data_dict["lang_cap"] = torch.cat(lang_caps, dim=0).cuda()
         data_dict["lang_pred_sentences"] = torch.cat(lang_pred_sentences, dim=0).cuda().view(B, N, -1)
         
         return data_dict
@@ -57,10 +53,9 @@ class BeamSearch(object):
     def run_search(self, data_dict, out_size=1, **kwargs):
         self.b_s = utils.get_batch_size(data_dict["enc_output"])
         self.device = utils.get_device(data_dict["enc_output"])
-        
-        device = data_dict["enc_output"].device
 
-        lang_ids_model = torch.ones([self.b_s, 1]).to(device).int() * 2
+        # Starting of sentence
+        lang_ids_model = torch.ones([self.b_s, 1]).to(self.device).int() * 2
         data_dict["lang_ids_model"] = lang_ids_model
 
         data_dict["bs_seq_mask"] = torch.ones((self.b_s, self.beam_size, 1), device=self.device)
@@ -70,6 +65,8 @@ class BeamSearch(object):
         data_dict["bs_all_log_probs"] = []
         
         data_dict["bs_outputs"] = []
+        
+        # Iterative generation 
         with self.model.statefulness(self.b_s):
             for t in range(self.max_len):
                 data_dict = self.iter(t, data_dict, **kwargs)
@@ -100,7 +97,6 @@ class BeamSearch(object):
         cur_beam_size = 1 if t == 0 else self.beam_size
 
         data_dict = self.model.step(t, data_dict, mode='feedback', **kwargs)
-        words = data_dict["lang_cap"].argmax(-1) # TODO: from iterative
         
         word_logprob = data_dict["lang_cap"]
         word_logprob = word_logprob.view(self.b_s, cur_beam_size, -1)

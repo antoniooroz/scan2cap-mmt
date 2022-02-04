@@ -20,7 +20,9 @@ scanrefer_train = json.load(open(os.path.join("./", "ScanRefer_filtered_train.js
 scene_list = get_scene_list(scanrefer_train)
 print("Num scenes original: " + str(len(scene_list)))
 
-scene_list_filtered = random.choices(scene_list, k=int(0.1 * len(scene_list)))
+fraction_of_training_data = 0.1 # Fraction of training data used for evaluation during training
+
+scene_list_filtered = random.choices(scene_list, k=int(fraction_of_training_data * len(scene_list)))
 
 print("Num scenes filtered: " + str(len(scene_list_filtered)))
 
