@@ -25,8 +25,6 @@ from lib.ap_helper import parse_predictions
 from lib.loss_helper import get_scene_cap_loss, get_object_cap_loss
 from utils.box_util import box3d_iou_batch_tensor
 
-from .wandb_table_logger import WandbTableLogger
-
 # constants
 DC = ScannetDatasetConfig()
 
@@ -393,7 +391,7 @@ def update_interm(interm, candidates, bleu, cider, rouge, meteor):
 
 def eval_cap(model, device, dataset, dataloader, phase, folder, 
     use_tf=False, is_eval=True, max_len=CONF.TRAIN.MAX_DES_LEN, force=False, 
-    mode="scene", save_interm=False, no_caption=False, no_classify=False, min_iou=CONF.EVAL.MIN_IOU_THRESHOLD, wandb_table_logger:WandbTableLogger=None, no_beam_search=False, beam_size=5):
+    mode="scene", save_interm=False, no_caption=False, no_classify=False, min_iou=CONF.EVAL.MIN_IOU_THRESHOLD, no_beam_search=False, beam_size=5):
     if no_caption:
         bleu = 0
         cider = 0
@@ -471,9 +469,6 @@ def eval_cap(model, device, dataset, dataloader, phase, folder,
         candidates = check_candidates(corpus, candidates)
 
         candidates = organize_candidates(corpus, candidates)
-
-        if wandb_table_logger is not None:
-            wandb_table_logger.add_data(corpus, candidates)
 
         with open(pred_path, "w") as f:
             json.dump(candidates, f, indent=4)

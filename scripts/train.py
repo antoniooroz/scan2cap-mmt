@@ -12,7 +12,6 @@ import torch
 import torch.optim as optim
 import torch.nn as nn
 import numpy as np
-import wandb
 
 from torch.utils.data import DataLoader
 from datetime import datetime
@@ -329,17 +328,8 @@ def train(args):
     print("initializing...")
     solver, num_params, root = get_solver(args, dataset, dataloader)
 
-    # TODO: Maybe before get solver with stamp and use config instead of args in get_solver
-    wandb.init(entity="adl4cv_scan2capmmt", project="Scan2CapMMT", name=solver.stamp, reinit=True)
-    config = wandb.config
-    for key in args.__dict__.keys():
-        config[key] = args.__dict__[key]
-        
-    wandb.watch(solver.model, log="all", log_freq=100, log_graph=False)
-
     print("Start training...\n")
     print("Number of parameter: " + f'{num_params:,}')
-    wandb.log({"extras/num_params": f'{num_params:,}'})
     save_info(args, root, num_params, dataset)
     solver(args.epoch, args.use_rl, args.verbose)
 

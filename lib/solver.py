@@ -12,7 +12,6 @@ import numpy as np
 from tqdm import tqdm
 from tensorboardX import SummaryWriter
 from torch.optim.lr_scheduler import StepLR, MultiStepLR
-from .wandb_table_logger import WandbTableLogger
 import torch.nn as nn
 
 sys.path.append(os.path.join(os.getcwd(), "lib")) # HACK add the lib folder
@@ -21,9 +20,6 @@ from lib.loss_helper import get_scene_cap_loss
 from lib.eval_helper import eval_cap
 from utils.eta import decode_eta
 from lib.pointnet2.pytorch_utils import BNMomentumScheduler
-
-import wandb
-
 
 ITER_REPORT_TEMPLATE = """
 -------------------------------iter: [{epoch_id}: {iter_id}/{total_iter}]-------------------------------
@@ -130,9 +126,6 @@ class Solver():
             "val": {}
         }
         
-
-        self.wandb_table_eval_train = WandbTableLogger("eval_train")
-        self.wandb_table_eval_val = WandbTableLogger("eval_val")
 
         # tensorboard
         os.makedirs(os.path.join(CONF.PATH.OUTPUT, stamp, "tensorboard/train"), exist_ok=True)
@@ -269,7 +262,6 @@ class Solver():
             }
 
     def _dump_log(self, phase, is_eval=False):
-        wandb_log = {}
 
         if phase == "train" and not is_eval:
             log = {
@@ -286,8 +278,6 @@ class Solver():
                             val,
                             self._global_iter_id
                         )
-                        wandb_log[phase+"_"+key+"_last/"+item] = self.log[phase][item][-1]
-                        wandb_log[phase+"_"+key+"/"+item] = val
 
         # eval
         if is_eval:
@@ -299,9 +289,6 @@ class Solver():
                         self.log[phase][key],
                         self._global_iter_id
                     )
-                    wandb_log["eval_"+phase+"/"+key] = self.log[phase][key]
-        
-        wandb.log(wandb_log)
 
     def _set_phase(self, phase):
         if phase == "train":
@@ -365,10 +352,6 @@ class Solver():
 
 
     def _eval(self, phase):
-        wandb_table_logger = self.wandb_table_eval_train if phase=="train" else self.wandb_table_eval_val
-
-        wandb_table_logger.set_epoch(self.epoch_id)
-
         if self.caption:
             bleu, cider, rouge, meteor = eval_cap(
                 model=self.model,
@@ -381,7 +364,6 @@ class Solver():
                 max_len=CONF.TRAIN.MAX_DES_LEN,
                 force=True,
                 min_iou=CONF.EVAL.MIN_IOU_THRESHOLD,
-                wandb_table_logger=wandb_table_logger,
                 no_beam_search=self.no_beam_search
             )
 
@@ -556,10 +538,6 @@ class Solver():
         # export
         for phase in ["train", "val"]:
             self._log_writer[phase].export_scalars_to_json(os.path.join(CONF.PATH.OUTPUT, self.stamp, "tensorboard/{}".format(phase), "all_scalars.json"))
-        
-        self.wandb_table_eval_train.log()
-        self.wandb_table_eval_val.log()
-        wandb.finish()
 
     def _train_report(self, epoch_id):
         # compute ETA
@@ -653,17 +631,6 @@ class Solver():
             meteor=meteor
         )
         self._log(best_report)
-
-        wandb.log({
-            "best/epoch": epoch,
-            "best/bleu-1": bleu_1,
-            "best/bleu-2": bleu_2,
-            "best/bleu-3": bleu_3,
-            "best/bleu-4": bleu_4,
-            "best/cider": cider,
-            "best/rouge": rouge,
-            "best/meteor": meteor,
-        })
 
         with open(os.path.join(CONF.PATH.OUTPUT, self.stamp, "best.txt"), "w") as f:
             f.write(best_report)

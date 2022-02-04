@@ -9,7 +9,6 @@ import torch.nn.functional as F
 import numpy as np
 import sys
 import os
-import wandb
 
 import lib.capeval.cider.cider as capcider
 import lib.capeval.bleu.bleu as capbleu
@@ -20,7 +19,6 @@ from lib.ap_helper import parse_predictions
 from lib.loss import SoftmaxRankingLoss
 from utils.box_util import get_3d_box, get_3d_box_batch, box3d_iou, box3d_iou_batch
 from lib.config import CONF
-from lib.wandb_table_logger import WandbTableLogger
 
 FAR_THRESHOLD = 0.6
 NEAR_THRESHOLD = 0.3
@@ -192,7 +190,7 @@ def compute_box_and_sem_cls_loss(data_dict, config):
 
     return center_loss, heading_class_loss, heading_residual_normalized_loss, size_class_loss, size_residual_normalized_loss, sem_cls_loss
 
-def compute_cap_loss(data_dict, config, dataset, weights, rl=False, wandb_table_logger:WandbTableLogger=None):
+def compute_cap_loss(data_dict, config, dataset, weights, rl=False):
     """ Compute cluster caption loss
 
     Args:
@@ -208,9 +206,6 @@ def compute_cap_loss(data_dict, config, dataset, weights, rl=False, wandb_table_
     target_caps = data_dict["lang_ids"][:, 1:num_words] # (B, num_words - 1)
     
     _, _, num_vocabs = pred_caps.shape
-
-    if wandb_table_logger is not None:
-        raise NotImplementedError() # TODO: Implement
 
     if not rl:
         # caption loss
@@ -285,15 +280,7 @@ def compute_cap_loss(data_dict, config, dataset, weights, rl=False, wandb_table_
         #reward_pred = capcider.Cider().compute_score(caps_gt, caps_gen)[1].astype(np.float32)
         #reward_pred = torch.from_numpy(reward_pred).to(data_dict["lang_pred_sentences"].device).view(batch_size)
         cap_acc = reward[data_dict["good_bbox_masks"] == True].mean()
-        wandb.log({
-            "rl/reward": reward[data_dict["good_bbox_masks"] == True].mean(),
-            "rl/baseline": reward_baseline[data_dict["good_bbox_masks"] == True].mean(),
-            "rl/loss": cap_loss,
-            "rl/loss_reward": reward_loss,
-            "rl/loss_duplicate": duplicate_loss,
-            "rl/duplicates": torch.mean(double_words),
-            "rl/log_probs": torch.mean(pred_caps_max.values)
-        })
+        
         #print("- - - - - - - - - - - - - -")
         #print("GT:      " + caps_gt_greedy[0][0])
         #print("GREEDY (" + str(reward_baseline[0].item()) +"):  " + caps_gen_greedy[0][0])
@@ -479,7 +466,7 @@ def compute_object_cls_loss(data_dict, weights):
     return cls_loss, cls_acc
 
 def get_scene_cap_loss(data_dict, device, config, dataset, weights, 
-    detection=True, caption=True, orientation=False, distance=False, num_bins=CONF.TRAIN.NUM_BINS, rl=False, wandb_cap_table=None):
+    detection=True, caption=True, orientation=False, distance=False, num_bins=CONF.TRAIN.NUM_BINS, rl=False):
     """ Loss functions
 
     Args:
@@ -535,7 +522,7 @@ def get_scene_cap_loss(data_dict, device, config, dataset, weights,
         data_dict["box_loss"] = torch.zeros(1)[0].to(device)
 
     if caption:
-        cap_loss, cap_acc = compute_cap_loss(data_dict, config, dataset, weights, rl, wandb_cap_table)
+        cap_loss, cap_acc = compute_cap_loss(data_dict, config, dataset, weights, rl)
 
         # store
         data_dict["cap_loss"] = cap_loss
@@ -590,7 +577,7 @@ def get_scene_cap_loss(data_dict, device, config, dataset, weights,
 
     return data_dict
 
-def get_object_cap_loss(data_dict, config, weights, classify=True, caption=True, wandb_cap_table=None):
+def get_object_cap_loss(data_dict, config, weights, classify=True, caption=True):
     """ Loss functions
 
     Args:
@@ -612,7 +599,7 @@ def get_object_cap_loss(data_dict, config, weights, classify=True, caption=True,
         data_dict["cls_acc"] = torch.zeros(1)[0].cuda()
 
     if caption:
-        cap_loss, cap_acc = compute_cap_loss(data_dict, config, weights, wandb_cap_table)
+        cap_loss, cap_acc = compute_cap_loss(data_dict, config, weights)
 
         # store
         data_dict["cap_loss"] = cap_loss
