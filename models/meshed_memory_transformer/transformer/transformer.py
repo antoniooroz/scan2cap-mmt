@@ -70,12 +70,15 @@ class Transformer(CaptioningModel):
         target_edge_feat = torch.gather(
             data_dict["edge_feature"], 1, target_ids.view(B, 1, 1, 1).repeat(1, 1, L, F)).squeeze(1)
         
-        
+        # Good bbox masks
         good_bbox_masks = target_ious > CONF.TRAIN.MIN_IOU_THRESHOLD # batch_size
         num_good_bboxes = good_bbox_masks.sum()
         
+        # For enocder
         data_dict["target_object_proposal"] = target_object_proposal
         data_dict["target_edge_feature"] = target_edge_feat
+        
+        # For loss
         data_dict["pred_ious"] =  target_ious[good_bbox_masks].mean() if num_good_bboxes > 0 else torch.zeros(1)[0].cuda()
         data_dict["good_bbox_masks"] = good_bbox_masks
         

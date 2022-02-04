@@ -73,7 +73,7 @@ class MeshedDecoder(Module):
         self.d_model = d_model
         self.word_emb = nn.Embedding(vocab_size, d_model, padding_idx=0)
         self.pos_emb = nn.Embedding.from_pretrained(sinusoid_encoding_table(max_len + 1, d_model, 0), freeze=True)
-        #self.object_fc = nn.Linear(d_model, d_model)
+        
         self.layers = ModuleList(
             [MeshedDecoderLayer(d_model, d_k, d_v, h, d_ff, dropout, self_att_module=self_att_module,
                                 enc_att_module=enc_att_module, self_att_module_kwargs=self_att_module_kwargs,
@@ -87,24 +87,13 @@ class MeshedDecoder(Module):
         self.register_state('running_seq', torch.zeros((1,)).long())
 
     def forward(self, data_dict, encoder_output, mask_encoder):
-        """[summary]
-
-        Args:
-            input ([type]): [batch_size * num_proposals, max_len, emb_size]
-            encoder_output ([type]): [description]
-            mask_encoder ([type]): [description]
-
-        Returns:
-            [type]: [description]
-        """
         # input (b_s, seq_len)
         # Previous words
         input = data_dict["lang_ids_model"] 
         
         b_s, seq_len = input.shape[:2]
         mask_queries = (input != self.padding_idx).unsqueeze(-1).float()  # (b_s, seq_len, 1)
-                
-        # mask_queries = (input != self.padding_idx).unsqueeze(-1).float()  
+                 
         mask_self_attention = torch.triu(torch.ones((seq_len, seq_len), dtype=torch.uint8, device=input.device),
                                          diagonal=1)
         mask_self_attention = mask_self_attention.unsqueeze(0).unsqueeze(0)  # (1, 1, seq_len, seq_len) # Should not consider future words
@@ -120,12 +109,6 @@ class MeshedDecoder(Module):
         if self._is_stateful:
             self.running_seq.add_(1)
             seq = self.running_seq
-
-
-        #obj_emb = F.relu(self.object_fc(data_dict["target_object_proposal"]))
-
-        #obj_emb = data_dict["encoder_input"][:,0,:]
-        #obj_emb = obj_emb.repeat_interleave(seq_len, dim=0).view(b_s, seq_len, data_dict["encoder_input"].shape[-1])
         
         out = self.word_emb(input) + self.pos_emb(seq) #+ obj_emb
         for i, l in enumerate(self.layers):

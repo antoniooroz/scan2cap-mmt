@@ -59,16 +59,6 @@ class MemoryAugmentedEncoder(MultiLevelEncoder):
         self.num_proposals = num_proposals
 
     def forward(self, data_dict, attention_weights=None):
-        """[summary]
-
-        Args:
-            object_proposals ([type]): [batch_size, num_proposals, features]
-            object_masks ([type]): [batch_size, num_proposals]
-            attention_weights ([type], optional): [description]. Defaults to None.
-
-        Returns:
-            [type]: [description]
-        """
         B, N, _ = data_dict["target_edge_feature"].shape
         
         encoder_input = torch.cat([
@@ -77,8 +67,6 @@ class MemoryAugmentedEncoder(MultiLevelEncoder):
         ], 1).type(torch.float).to(data_dict["bbox_feature"].device)
 
         B, N, _ = encoder_input.shape
-
-        #object_masks = data_dict["bbox_mask"] TODO: Object masks necessary with graph?
         
         object_proposals = encoder_input.view(B * N, -1) # [batch_size * (n_locals+1), feature_size]
 

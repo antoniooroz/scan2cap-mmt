@@ -1,4 +1,3 @@
-from .utils import download_from_url
 from .typing import *
 
 def get_batch_size(x: TensorOrSequence) -> int:
