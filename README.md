@@ -6,14 +6,14 @@ We utilize the Meshed Memory Transformer architecture in this model. Therefore s
 
 The license is provided in `LICENSE_Meshed_Memory_Transformer.md`
 # Data
-Please refer to [Scan2Cap](https://github.com/daveredrum/Scan2Cap) in order to get the datasets.
+Please refer to [Scan2Cap](https://github.com/daveredrum/Scan2Cap) in order to get the dataset.
 
 # Setup
 Please also follow all setup steps provided in [Scan2Cap](https://github.com/daveredrum/Scan2Cap) for our project. Please make sure to install our `requirements.txt` with `pip install -r requirements.txt`
 
-Additionally you will need to insert `create_scanrefer_filtered_train_small.py` into you `/data` folder and execute it.
+Additionally you will need to insert `create_scanrefer_filtered_train_small.py` into `/data` and execute it.
 - This will create a small subset of the training data for evaluation on items from the training set. This does not affect evaluation on items from the validation set.
-- If you wish to use the whole training set during evaluation, just copy `ScanrRefer_filtered_train.json` to  `ScanrRefer_filtered_train_small.json` in your `/data` folder.
+- If you wish to use the whole training set during evaluation, just copy `ScanrRefer_filtered_train.json` to  `ScanrRefer_filtered_train_small.json` in `/data`.
 
 # Training our model
 To reproduce our S2C-MMT results please first train the model for 50 epochs.
