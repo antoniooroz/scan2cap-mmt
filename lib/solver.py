@@ -303,11 +303,7 @@ class Solver():
             data_dict = self.model(data_dict, use_tf=self.use_tf)
         else:
             max_len = data_dict["lang_len"].max() - 1  
-            with torch.no_grad():          
-                data_dict2 = copy.deepcopy(data_dict)
-                data_dict2 = self.model.iterative(data_dict2, is_eval=False, max_len=max_len)
             data_dict = self.model.beam_search(data_dict, is_eval=False, max_len=max_len)
-            data_dict["greedy_preds"] = data_dict2["lang_pred_sentences"]
             
         return data_dict
 
@@ -315,8 +311,6 @@ class Solver():
         # optimize
         self.optimizer.zero_grad()
         self._running_log["loss"].backward()
-        # if self.use_rl:
-        #     nn.utils.clip_grad_value_(self.model.parameters(), clip_value=0.0001)
         self.optimizer.step()
 
     def _compute_loss(self, data_dict, rl=False):
