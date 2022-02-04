@@ -1,9 +1,3 @@
-# scan2cap-with-transformers
-- Our model is models/capnet_transformer.py
-- Using models/meshed-memory-transformer/
-- utils_meshed_memory_trainsformer
-
-
 # Scan2Cap
 This project builds upon the [Scan2Cap](https://github.com/daveredrum/Scan2Cap) architecture.
 
