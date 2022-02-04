@@ -9,3 +9,5 @@ matplotlib
 elevate
 numpy-quaternion
 imageio
+torch-geometric
+torch-sparse

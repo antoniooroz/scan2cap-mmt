@@ -23,7 +23,7 @@ Original link: https://github.com/aimagelab/meshed-memory-transformer
 Please refer to https://github.com/daveredrum/Scan2Cap in order to get the datasets.
 
 # Setup
-Please also follow all setup steps provided in https://github.com/daveredrum/Scan2Cap for our project.
+Please also follow all setup steps provided in https://github.com/daveredrum/Scan2Cap for our project. Please make sure to install our `requirements.txt` with `pip install -r requirements.txt`
 
 Additionally you will need to insert `create_scanrefer_filtered_train_small.py` into you `/data` folder and execute it.
 - This will create a small subset of the training data for evaluation on items from the training set. This does not affect evaluation on items from the validation set.
@@ -48,11 +48,11 @@ Evaluating caption performance at 0.5IoU
 ```
 Evaluating caption performance at 0.25IoU
 ```bash
- python scripts/eval.py --use_multiview --use_normal --use_relation --num_graph_steps 2 --num_locals 10 --batch_size=8 --transformer_dropout=0 --attention_module_memory_slots=20 --d_model=192 --transformer_d_ff=1024 --transformer_d_k=32 --transformer_d_v=32 --folder <model_name> --min_iou=0.5 --eval_caption --beam_size 2 --no_encoder 
+ python scripts/eval.py --use_multiview --use_normal --use_relation --num_graph_steps 2 --num_locals 10 --batch_size=8 --transformer_dropout=0 --attention_module_memory_slots=20 --d_model=192 --transformer_d_ff=1024 --transformer_d_k=32 --transformer_d_v=32 --folder <model_name> --min_iou=0.25 --eval_caption --beam_size 2 --no_encoder 
 ```
 Evaluating detection performance:
 ```bash
- python scripts/eval.py --use_multiview --use_normal --use_relation --num_graph_steps 2 --num_locals 10 --batch_size=8 --transformer_dropout=0 --attention_module_memory_slots=20 --d_model=192 --transformer_d_ff=1024 --transformer_d_k=32 --transformer_d_v=32 --folder <model_name> --eval_detection --beam_size 2 --no_encoder 
+ python scripts/eval.py --use_multiview --use_normal --use_relation --num_graph_steps 2 --num_locals 10 --batch_size=8 --transformer_dropout=0 --attention_module_memory_slots=20 --d_model=192 --transformer_d_ff=1024 --transformer_d_k=32 --transformer_d_v=32 --folder <model_name> --eval_detection --no_beam_search --no_encoder 
 ```
 
 # License

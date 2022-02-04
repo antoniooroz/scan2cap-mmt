@@ -1,5 +1,4 @@
 # Gitignores by Antonio
-lib/config.py
 *.pyc
 
 # dataset
@@ -32,7 +31,6 @@ lib/pointnet2/pointnet2.egg-info/
 logs/
 
 # output
-outputs/
 archive/
 
 # node
