@@ -12,10 +12,10 @@ We utilize the Meshed Memory Transformer architecture in this model. Therefore s
 
 The license is provided in `LICENSE_Meshed_Memory_Transformer.md`
 # Data
-Please refer to https://github.com/daveredrum/Scan2Cap in order to get the datasets.
+Please refer to [Scan2Cap](https://github.com/daveredrum/Scan2Cap) in order to get the datasets.
 
 # Setup
-Please also follow all setup steps provided in https://github.com/daveredrum/Scan2Cap for our project. Please make sure to install our `requirements.txt` with `pip install -r requirements.txt`
+Please also follow all setup steps provided in [Scan2Cap](https://github.com/daveredrum/Scan2Cap) for our project. Please make sure to install our `requirements.txt` with `pip install -r requirements.txt`
 
 Additionally you will need to insert `create_scanrefer_filtered_train_small.py` into you `/data` folder and execute it.
 - This will create a small subset of the training data for evaluation on items from the training set. This does not affect evaluation on items from the validation set.
@@ -52,4 +52,4 @@ Scan2Cap is licensed under a Creative Commons Attribution-NonCommercial-ShareAli
 
 Meshed-Memory Transformer follwos BSD-3-Clause License.
 
-Please refer to https://github.com/daveredrum/Scan2Cap and https://github.com/aimagelab/meshed-memory-transformer for licensing
+Please refer to [Scan2Cap](https://github.com/daveredrum/Scan2Cap) and [Meshed Memory Transformer](https://github.com/aimagelab/meshed-memory-transformer) for licensing
