@@ -12,8 +12,11 @@ Original link: https://github.com/daveredrum/Scan2Cap
 Files provided in 
 - /models/meshed_memory_transformer
 - /utils_meshed_memory_transformer
+
 originate from the Meshed Memory Transformer architecture. They are modified.
+
 The license is provided in LICENSE_Meshed_Memory_Transformer.md
+
 Original link: https://github.com/aimagelab/meshed-memory-transformer
 
 # Data
@@ -28,5 +31,7 @@ Additionally you will need to insert create_scanrefer_filtered_train_small.py in
 
 # License
 Scan2Cap is licensed under a Creative Commons Attribution-NonCommercial-ShareAlike 3.0 Unported License.
+
 Meshed-Memory Transformer follwos BSD-3-Clause License.
+
 Please refer to https://github.com/daveredrum/Scan2Cap and https://github.com/aimagelab/meshed-memory-transformer for licensing
