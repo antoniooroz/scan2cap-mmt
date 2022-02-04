@@ -5,20 +5,12 @@
 
 
 # Scan2Cap
-This project is builds upon the Scan2Cap architecture
-Original link: https://github.com/daveredrum/Scan2Cap
+This project builds upon the [Scan2Cap](https://github.com/daveredrum/Scan2Cap) architecture.
 
 # Meshed Memory Transformer
-Files provided in 
-- `/models/meshed_memory_transformer`
-- `/utils_meshed_memory_transformer`
-
-originate from the Meshed Memory Transformer architecture. They are modified.
+We utilize the Meshed Memory Transformer architecture in this model. Therefore some files provided here originate from the [Meshed Memory Transformer](https://github.com/aimagelab/meshed-memory-transformer).
 
 The license is provided in `LICENSE_Meshed_Memory_Transformer.md`
-
-Original link: https://github.com/aimagelab/meshed-memory-transformer
-
 # Data
 Please refer to https://github.com/daveredrum/Scan2Cap in order to get the datasets.
 
