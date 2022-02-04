@@ -86,9 +86,9 @@ def get_model(args, dataset, root=CONF.PATH.OUTPUT):
         transformer_d_v=args.transformer_d_v,
         transformer_h=args.transformer_h,
         transformer_d_ff=args.transformer_d_ff,
-        transformer_dropout=args.transformer_dropout
+        transformer_dropout=args.transformer_dropout,
+        no_encoder=args.no_encoder
     )
-
     # load
     model_name = "model_last.pth" if args.use_last else "model.pth"
     model_path = os.path.join(root, args.folder, model_name)
@@ -384,7 +384,7 @@ def visualize(args):
                         ply_path = os.path.join(scene_root, ply_name)
 
                         palette_idx = int(object_id) % len(COLORS)
-                        color = COLORS[palette_idx]
+                        color = [255,0,0] # COLORS[palette_idx]
                         write_bbox(detected_bbox_corner, color, ply_path)
                         
                     except KeyError:
@@ -450,6 +450,9 @@ if __name__ == "__main__":
     parser.add_argument("--transformer_h", type=int, default=8)
     parser.add_argument("--transformer_d_ff", type=int, default=2048)
     parser.add_argument("--transformer_dropout", type=float, default=0)
+    parser.add_argument("--no_beam_search", action="store_true", help="Disables Beam Search for Evaluation")
+    parser.add_argument("--beam_size", type=int, default=5)
+    parser.add_argument("--no_encoder", action="store_true", help="Disables MMT encoder")
     # TODO: allow beam search
     args = parser.parse_args()
 

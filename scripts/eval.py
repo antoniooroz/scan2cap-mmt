@@ -81,7 +81,8 @@ def get_model(args, dataset, device, root=CONF.PATH.OUTPUT, eval_pretrained=Fals
         transformer_d_v=args.transformer_d_v,
         transformer_h=args.transformer_h,
         transformer_d_ff=args.transformer_d_ff,
-        transformer_dropout=args.transformer_dropout
+        transformer_dropout=args.transformer_dropout,
+        no_encoder=args.no_encoder
     )
 
     if eval_pretrained:
@@ -222,7 +223,7 @@ def eval_detection(args):
         # feed
         with torch.no_grad():
             data = model(data, False, True)
-            data = get_scene_cap_loss(data, device, DC, weights=dataset.weights, detection=True, caption=False)
+            data = get_scene_cap_loss(data, device, DC, dataset, weights=dataset.weights, detection=True, caption=False)
 
         batch_pred_map_cls = parse_predictions(data, POST_DICT) 
         batch_gt_map_cls = parse_groundtruths(data, POST_DICT) 
@@ -290,6 +291,7 @@ if __name__ == "__main__":
     parser.add_argument("--transformer_dropout", type=float, default=0)
     parser.add_argument("--no_beam_search", action="store_true", help="Disables Beam Search for Evaluation")
     parser.add_argument("--beam_size", type=int, default=5)
+    parser.add_argument("--no_encoder", action="store_true", help="Disables MMT encoder")
     
     args = parser.parse_args()
 
