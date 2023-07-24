@@ -1,7 +1,6 @@
-![Poster](presentation/Poster.pdf)
+![Final Poster](presentation/Poster.png)
 
-[First Presentation](presentation/1st_Presentation.pdf)
-[Second Presentation](presentation/2nd_Presentation.pdf)
+[First Presentation](presentation/1st_Presentation.pdf) & [Second Presentation](presentation/2nd_Presentation.pdf)
 
 # Scan2Cap
 This project builds upon the [Scan2Cap](https://github.com/daveredrum/Scan2Cap) architecture.
